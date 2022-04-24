@@ -15,21 +15,26 @@ type System struct {
 	CPU *cpu65c816.CPU
 	*HWIO
 
-	ROM  [0x1000000]byte
-	WRAM [0x20000]byte
-	SRAM [0x10000]byte
+	ROM  []byte
+	WRAM *[0x20000]byte
+	SRAM *[0x10000]byte
 
-	VRAM [0x10000]byte
+	VRAM *[0x10000]byte
 
 	Logger    io.Writer
 	LoggerCPU io.Writer
 }
 
-func (s *System) CreateEmulator() (err error) {
+func (s *System) CreateEmulator(rom []byte, wram *[0x20000]byte, sram *[0x10000]byte, vram *[0x10000]byte) (err error) {
 	// create primary A bus for SNES:
 	s.Bus, _ = bus.NewWithSizeHint(0x40*2 + 0x10*2 + 1 + 0x70 + 0x80 + 0x70*2)
 	// Create CPU:
 	s.CPU, _ = cpu65c816.New(s.Bus)
+
+	s.ROM = rom
+	s.WRAM = wram
+	s.SRAM = sram
+	s.VRAM = vram
 
 	// map in ROM to Bus; parts of this mapping will be overwritten:
 	for b := uint32(0); b < 0x40; b++ {

@@ -41,7 +41,8 @@ func main() {
 		Logger:    os.Stdout,
 		LoggerCPU: nil,
 	}
-	if err = e.CreateEmulator(); err != nil {
+	rom, wram, sram, vram := make([]byte, 0x100_0000), &[0x20000]byte{}, &[0x10000]byte{}, &[0x10000]byte{}
+	if err = e.CreateEmulator(rom, wram, sram, vram); err != nil {
 		panic(err)
 	}
 
@@ -54,237 +55,7 @@ func main() {
 		panic(err)
 	}
 
-	var a *asm.Emitter
-
-	// initialize game:
-	e.CPU.Reset()
-	//#_008029: JSR Sound_LoadIntroSongBank		// skip this
-	// this is useless zeroing of memory; don't need to run it
-	//#_00802C: JSR Startup_InitializeMemory
-	if err = e.Exec(0x00_8029); err != nil {
-		panic(err)
-	}
-
-	{
-		// must execute in bank $01
-		a = asm.NewEmitter(e.HWIO.Dyn[0x01_5100&0xFFFF-0x5000:], true)
-		a.SetBase(0x01_5100)
-
-		{
-			b01LoadAndDrawRoomPC = a.Label("loadAndDrawRoom")
-			a.REP(0x30)
-			b01LoadAndDrawRoomSetSupertilePC = a.Label("loadAndDrawRoomSetSupertile") + 1
-			a.LDA_imm16_w(0x0000)
-			a.STA_dp(0xA0)
-			a.SEP(0x30)
-
-			// loads header and draws room
-			a.Comment("Underworld_LoadRoom#_01873A")
-			a.JSL(0x01_873A)
-
-			a.Comment("Underworld_LoadCustomTileAttributes#_0FFD65")
-			a.JSL(0x0F_FD65)
-			a.Comment("Underworld_LoadAttributeTable#_01B8BF")
-			a.JSL(0x01_B8BF)
-
-			// then JSR Underworld_LoadHeader#_01B564 to reload the doors into $19A0[16]
-			//a.BRA("jslUnderworld_LoadHeader")
-			a.WDM(0xAA)
-		}
-
-		// finalize labels
-		if err = a.Finalize(); err != nil {
-			panic(err)
-		}
-		a.WriteTextTo(e.Logger)
-	}
-
-	// this routine renders a supertile assuming gfx tileset and palettes already loaded:
-	{
-		// emit into our custom $02:5100 routine:
-		a = asm.NewEmitter(e.HWIO.Dyn[b02LoadUnderworldSupertilePC&0xFFFF-0x5000:], true)
-		a.SetBase(b02LoadUnderworldSupertilePC)
-		a.Comment("setup bank restore back to $00")
-		a.SEP(0x30)
-		a.LDA_imm8_b(0x00)
-		a.PHA()
-		a.PLB()
-		a.Comment("in Underworld_LoadEntrance_DoPotsBlocksTorches at PHB and bank switch to $7e")
-		a.JSR_abs(0xD854)
-		a.Comment("Module06_UnderworldLoad after JSR Underworld_LoadEntrance")
-		a.JMP_abs_imm16_w(0x8157)
-		a.Comment("implied RTL")
-		a.WriteTextTo(e.Logger)
-	}
-
-	if false {
-		// TODO: pit detection using Link_ControlHandler
-		// bank 07
-		// force a pit detection:
-		// set $02E4 = 0 to allow control of link
-		// set $55 = 0 to disable cape
-		// set $5D base state to $01 to check pits
-		// set $5B = $02
-		// JSL Link_Main#_078000
-		// output $59 != 0 if pit detected; $A0 changed
-	}
-
-	{
-		// emit into our custom $00:5000 routine:
-		a = asm.NewEmitter(e.HWIO.Dyn[:], true)
-		a.SetBase(0x00_5000)
-		a.SEP(0x30)
-
-		a.Comment("InitializeTriforceIntro#_0CF03B: sets up initial state")
-		a.JSL(0x0C_F03B)
-		a.Comment("LoadDefaultTileAttributes#_0FFD2A")
-		a.JSL(0x0F_FD2A)
-
-		// general world state:
-		a.Comment("disable rain")
-		a.LDA_imm8_b(0x02)
-		a.STA_long(0x7EF3C5)
-
-		a.Comment("no bed cutscene")
-		a.LDA_imm8_b(0x10)
-		a.STA_long(0x7EF3C6)
-
-		loadEntrancePC = a.Label("loadEntrance")
-		a.SEP(0x30)
-		// prepare to call the underworld room load module:
-		a.Comment("module $06, submodule $00:")
-		a.LDA_imm8_b(0x06)
-		a.STA_dp(0x10)
-		a.STZ_dp(0x11)
-		a.STZ_dp(0xB0)
-
-		a.Comment("dungeon entrance DungeonID")
-		setEntranceIDPC = a.Label("setEntranceID") + 1
-		a.LDA_imm8_b(0x08)
-		a.STA_abs(0x010E)
-
-		// loads a dungeon given an entrance ID:
-		a.Comment("JSL Module_MainRouting")
-		a.JSL(0x00_80B5)
-		a.BRA("updateVRAM")
-
-		loadSupertilePC = a.Label("loadSupertile")
-		a.SEP(0x30)
-		a.INC_abs(0x0710)
-		a.Comment("Intro_InitializeDefaultGFX after JSL DecompressAnimatedUnderworldTiles")
-		a.JSL(0x0C_C237)
-		a.STZ_dp(0x11)
-		a.Comment("LoadUnderworldSupertile")
-		a.JSL(b02LoadUnderworldSupertilePC)
-
-		a.Label("updateVRAM")
-		// this code sets up the DMA transfer parameters for animated BG tiles:
-		a.Comment("NMI_PrepareSprites")
-		a.JSR_abs(0x85FC)
-		a.Comment("NMI_DoUpdates")
-		a.JSR_abs(0x89E0) // NMI_DoUpdates
-
-		// WDM triggers an abort for values >= 10
-		donePC = a.Label("done")
-		a.WDM(0xAA)
-
-		// finalize labels
-		if err = a.Finalize(); err != nil {
-			panic(err)
-		}
-		a.WriteTextTo(e.Logger)
-	}
-
-	{
-		// emit into our custom $00:5300 routine:
-		a = asm.NewEmitter(e.HWIO.Dyn[b00HandleRoomTagsPC&0xFFFF-0x5000:], true)
-		a.SetBase(b00HandleRoomTagsPC)
-
-		a.SEP(0x30)
-
-		a.Comment("Module07_Underworld")
-		a.LDA_imm8_b(0x07)
-		a.STA_dp(0x10)
-		a.STZ_dp(0x11)
-		a.STZ_dp(0xB0)
-
-		//write8(e.WRAM[:], 0x04BA, 0)
-		a.Comment("no cutscene")
-		a.STZ_abs(0x02E4)
-		a.Comment("enable tags")
-		a.STZ_abs(0x04C7)
-
-		//a.Comment("Graphics_LoadChrHalfSlot#_00E43A")
-		//a.JSL(0x00_E43A)
-		a.Comment("Underworld_HandleRoomTags#_01C2FD")
-		a.JSL(0x01_C2FD)
-
-		// check if submodule changed:
-		a.LDA_dp(0x11)
-		a.BEQ("no_submodule")
-
-		a.Label("continue_submodule")
-		a.Comment("JSL Module_MainRouting")
-		a.JSL(0x00_80B5)
-
-		a.Label("no_submodule")
-		// this code sets up the DMA transfer parameters for animated BG tiles:
-		a.Comment("NMI_PrepareSprites")
-		a.JSR_abs(0x85FC)
-
-		// fake NMI:
-		//a.REP(0x30)
-		//a.PHD()
-		//a.PHB()
-		//a.LDA_imm16_w(0)
-		//a.TCD()
-		//a.PHK()
-		//a.PLB()
-		//a.SEP(0x30)
-		a.Comment("NMI_DoUpdates")
-		a.JSR_abs(0x89E0) // NMI_DoUpdates
-		//a.PLB()
-		//a.PLD()
-		a.LDA_dp(0x11)
-		a.BNE("continue_submodule")
-
-		a.STZ_dp(0x11)
-		a.WDM(0xAA)
-
-		// finalize labels
-		if err = a.Finalize(); err != nil {
-			panic(err)
-		}
-		a.WriteTextTo(e.Logger)
-	}
-
-	{
-		// skip over music & sfx loading since we did not implement APU registers:
-		a = newEmitterAt(e, 0x02_8293, true)
-		//#_028293: JSR Underworld_LoadSongBankIfNeeded
-		a.JMP_abs_imm16_w(0x82BC)
-		//.exit
-		//#_0282BC: SEP #$20
-		//#_0282BE: RTL
-		a.WriteTextTo(e.Logger)
-	}
-
-	{
-		// patch out RebuildHUD:
-		a = newEmitterAt(e, 0x0D_FA88, true)
-		//RebuildHUD_Keys:
-		//	#_0DFA88: STA.l $7EF36F
-		a.RTL()
-		a.WriteTextTo(e.Logger)
-	}
-
-	//s.LoggerCPU = os.Stdout
-	_ = loadSupertilePC
-
-	// run the initialization code:
-	if err = e.ExecAt(0x00_5000, donePC); err != nil {
-		panic(err)
-	}
+	setupAlttp(e)
 
 	//RoomsWithPitDamage#_00990C [0x70]uint16
 	roomsWithPitDamage := make(map[Supertile]bool, 0x128)
@@ -301,46 +72,12 @@ func main() {
 	entranceGroups := make([]Entrance, entranceCount)
 	supertiles := make(map[Supertile]*RoomState, 0x128)
 
-	// scan underworld for certain tile types:
-	if false {
-		// poke the entrance ID into our asm code:
-		e.HWIO.Dyn[setEntranceIDPC-0x5000] = 0x00
-		// load the entrance and draw the room:
-		if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
-			panic(err)
-		}
-
-		for st := uint16(0); st < 0x128; st++ {
-			// load and draw current supertile:
-			write16(e.HWIO.Dyn[:], b01LoadAndDrawRoomSetSupertilePC-0x01_5000, st)
-			if err = e.ExecAt(b01LoadAndDrawRoomPC, 0); err != nil {
-				panic(err)
-			}
-
-			found := false
-			for t, v := range e.WRAM[0x12000:0x14000] {
-				if v == 0x0A {
-					found = true
-					fmt.Printf("%s: %s = $0A\n", Supertile(st), MapCoord(t))
-				}
-			}
-
-			if found {
-				ioutil.WriteFile(fmt.Sprintf("data/%03x.tmap", st), e.WRAM[0x12000:0x14000], 0644)
-			}
-		}
-		return
-	}
-
 	// iterate over entrances:
 	wg := sync.WaitGroup{}
 	for eID := uint8(0); eID < entranceCount; eID++ {
 		fmt.Fprintf(e.Logger, "entrance $%02x\n", eID)
 
 		// poke the entrance ID into our asm code:
-		//dyn := e.HWIO.Dyn
-		//e.HWIO.Reset()
-		//e.HWIO.Dyn = dyn
 		e.HWIO.Dyn[setEntranceIDPC-0x5000] = eID
 		// load the entrance and draw the room:
 		if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
@@ -371,12 +108,6 @@ func main() {
 			if err = e.ExecAt(loadSupertilePC, donePC); err != nil {
 				panic(err)
 			}
-
-			//// load and draw current supertile:
-			//write16(e.HWIO.Dyn[:], b01LoadAndDrawRoomSetSupertilePC-0x01_5000, uint16(st))
-			//if err = e.ExecAt(b01LoadAndDrawRoomPC, 0); err != nil {
-			//	panic(err)
-			//}
 
 			room = &RoomState{
 				Supertile:         st,
@@ -802,7 +533,7 @@ func main() {
 
 		{
 			// if this is the entrance, Link should be already moved to his starting position:
-			wram := (&e.WRAM)[:]
+			wram := e.WRAM[:]
 			linkX := read16(wram, 0x22)
 			linkY := read16(wram, 0x20)
 			linkLayer := read16(wram, 0xEE)
@@ -1167,47 +898,45 @@ func main() {
 		}
 
 		// render all supertiles found:
-		if len(g.Rooms) >= 1 {
-			for _, room := range g.Rooms {
-				if false {
-					// loadSupertile:
-					copy(e.WRAM[:], room.WRAM[:])
-					write16(e.WRAM[:], 0xA0, uint16(room.Supertile))
-					if err = e.ExecAt(loadSupertilePC, donePC); err != nil {
-						panic(err)
-					}
-					copy((&room.VRAMTileSet)[:], (&e.VRAM)[0x4000:0x8000])
-					copy((&room.WRAM)[:], (&e.WRAM)[:])
+		for _, room := range g.Rooms {
+			if false {
+				// loadSupertile:
+				copy(e.WRAM[:], room.WRAM[:])
+				write16(e.WRAM[:], 0xA0, uint16(room.Supertile))
+				if err = e.ExecAt(loadSupertilePC, donePC); err != nil {
+					panic(err)
 				}
+				copy(room.VRAMTileSet[:], e.VRAM[0x4000:0x8000])
+				copy(room.WRAM[:], e.WRAM[:])
+			}
 
-				{
-					fmt.Fprintf(e.Logger, "  render %s\n", room.Supertile)
+			{
+				fmt.Fprintf(e.Logger, "  render %s\n", room.Supertile)
 
-					wg.Add(1)
-					go drawSupertile(&wg, room)
+				wg.Add(1)
+				go drawSupertile(&wg, room)
 
-					// render VRAM BG tiles to a PNG:
-					if false {
-						cgram := (*(*[0x100]uint16)(unsafe.Pointer(&room.WRAM[0xC300])))[:]
-						pal := cgramToPalette(cgram)
+				// render VRAM BG tiles to a PNG:
+				if false {
+					cgram := (*(*[0x100]uint16)(unsafe.Pointer(&room.WRAM[0xC300])))[:]
+					pal := cgramToPalette(cgram)
 
-						tiles := 0x4000 / 32
-						g := image.NewPaletted(image.Rect(0, 0, 16*8, (tiles/16)*8), pal)
-						for t := 0; t < tiles; t++ {
-							// palette 2
-							z := uint16(t) | (2 << 10)
-							draw4bppTile(
-								g,
-								z,
-								(&room.VRAMTileSet)[:],
-								t%16,
-								t/16,
-							)
-						}
+					tiles := 0x4000 / 32
+					g := image.NewPaletted(image.Rect(0, 0, 16*8, (tiles/16)*8), pal)
+					for t := 0; t < tiles; t++ {
+						// palette 2
+						z := uint16(t) | (2 << 10)
+						draw4bppTile(
+							g,
+							z,
+							(&room.VRAMTileSet)[:],
+							t%16,
+							t/16,
+						)
+					}
 
-						if err = exportPNG(fmt.Sprintf("data/%03X.vram.png", uint16(room.Supertile)), g); err != nil {
-							panic(err)
-						}
+					if err = exportPNG(fmt.Sprintf("data/%03X.vram.png", uint16(room.Supertile)), g); err != nil {
+						panic(err)
 					}
 				}
 			}
@@ -1229,6 +958,278 @@ func main() {
 	// condense all maps into one image:
 	renderAll("eg1", entranceGroups, 0x00, 0x10)
 	renderAll("eg2", entranceGroups, 0x10, 0x3)
+}
+
+func scanForTileTypes(e *System) {
+	var err error
+
+	// scan underworld for certain tile types:
+	// poke the entrance ID into our asm code:
+	e.HWIO.Dyn[setEntranceIDPC-0x5000] = 0x00
+	// load the entrance and draw the room:
+	if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
+		panic(err)
+	}
+
+	for st := uint16(0); st < 0x128; st++ {
+		// load and draw current supertile:
+		write16(e.HWIO.Dyn[:], b01LoadAndDrawRoomSetSupertilePC-0x01_5000, st)
+		if err = e.ExecAt(b01LoadAndDrawRoomPC, 0); err != nil {
+			panic(err)
+		}
+
+		found := false
+		for t, v := range e.WRAM[0x12000:0x14000] {
+			if v == 0x0A {
+				found = true
+				fmt.Printf("%s: %s = $0A\n", Supertile(st), MapCoord(t))
+			}
+		}
+
+		if found {
+			ioutil.WriteFile(fmt.Sprintf("data/%03x.tmap", st), e.WRAM[0x12000:0x14000], 0644)
+		}
+	}
+
+	return
+
+}
+
+func setupAlttp(e *System) {
+	var a *asm.Emitter
+	var err error
+
+	// initialize game:
+	e.CPU.Reset()
+	//#_008029: JSR Sound_LoadIntroSongBank		// skip this
+	// this is useless zeroing of memory; don't need to run it
+	//#_00802C: JSR Startup_InitializeMemory
+	if err = e.Exec(0x00_8029); err != nil {
+		panic(err)
+	}
+
+	{
+		// must execute in bank $01
+		a = asm.NewEmitter(e.HWIO.Dyn[0x01_5100&0xFFFF-0x5000:], true)
+		a.SetBase(0x01_5100)
+
+		{
+			b01LoadAndDrawRoomPC = a.Label("loadAndDrawRoom")
+			a.REP(0x30)
+			b01LoadAndDrawRoomSetSupertilePC = a.Label("loadAndDrawRoomSetSupertile") + 1
+			a.LDA_imm16_w(0x0000)
+			a.STA_dp(0xA0)
+			a.SEP(0x30)
+
+			// loads header and draws room
+			a.Comment("Underworld_LoadRoom#_01873A")
+			a.JSL(0x01_873A)
+
+			a.Comment("Underworld_LoadCustomTileAttributes#_0FFD65")
+			a.JSL(0x0F_FD65)
+			a.Comment("Underworld_LoadAttributeTable#_01B8BF")
+			a.JSL(0x01_B8BF)
+
+			// then JSR Underworld_LoadHeader#_01B564 to reload the doors into $19A0[16]
+			//a.BRA("jslUnderworld_LoadHeader")
+			a.WDM(0xAA)
+		}
+
+		// finalize labels
+		if err = a.Finalize(); err != nil {
+			panic(err)
+		}
+		a.WriteTextTo(e.Logger)
+	}
+
+	// this routine renders a supertile assuming gfx tileset and palettes already loaded:
+	{
+		// emit into our custom $02:5100 routine:
+		a = asm.NewEmitter(e.HWIO.Dyn[b02LoadUnderworldSupertilePC&0xFFFF-0x5000:], true)
+		a.SetBase(b02LoadUnderworldSupertilePC)
+		a.Comment("setup bank restore back to $00")
+		a.SEP(0x30)
+		a.LDA_imm8_b(0x00)
+		a.PHA()
+		a.PLB()
+		a.Comment("in Underworld_LoadEntrance_DoPotsBlocksTorches at PHB and bank switch to $7e")
+		a.JSR_abs(0xD854)
+		a.Comment("Module06_UnderworldLoad after JSR Underworld_LoadEntrance")
+		a.JMP_abs_imm16_w(0x8157)
+		a.Comment("implied RTL")
+		a.WriteTextTo(e.Logger)
+	}
+
+	if false {
+		// TODO: pit detection using Link_ControlHandler
+		// bank 07
+		// force a pit detection:
+		// set $02E4 = 0 to allow control of link
+		// set $55 = 0 to disable cape
+		// set $5D base state to $01 to check pits
+		// set $5B = $02
+		// JSL Link_Main#_078000
+		// output $59 != 0 if pit detected; $A0 changed
+	}
+
+	{
+		// emit into our custom $00:5000 routine:
+		a = asm.NewEmitter(e.HWIO.Dyn[:], true)
+		a.SetBase(0x00_5000)
+		a.SEP(0x30)
+
+		a.Comment("InitializeTriforceIntro#_0CF03B: sets up initial state")
+		a.JSL(0x0C_F03B)
+		a.Comment("LoadDefaultTileAttributes#_0FFD2A")
+		a.JSL(0x0F_FD2A)
+
+		// general world state:
+		a.Comment("disable rain")
+		a.LDA_imm8_b(0x02)
+		a.STA_long(0x7EF3C5)
+
+		a.Comment("no bed cutscene")
+		a.LDA_imm8_b(0x10)
+		a.STA_long(0x7EF3C6)
+
+		loadEntrancePC = a.Label("loadEntrance")
+		a.SEP(0x30)
+		// prepare to call the underworld room load module:
+		a.Comment("module $06, submodule $00:")
+		a.LDA_imm8_b(0x06)
+		a.STA_dp(0x10)
+		a.STZ_dp(0x11)
+		a.STZ_dp(0xB0)
+
+		a.Comment("dungeon entrance DungeonID")
+		setEntranceIDPC = a.Label("setEntranceID") + 1
+		a.LDA_imm8_b(0x08)
+		a.STA_abs(0x010E)
+
+		// loads a dungeon given an entrance ID:
+		a.Comment("JSL Module_MainRouting")
+		a.JSL(0x00_80B5)
+		a.BRA("updateVRAM")
+
+		loadSupertilePC = a.Label("loadSupertile")
+		a.SEP(0x30)
+		a.INC_abs(0x0710)
+		a.Comment("Intro_InitializeDefaultGFX after JSL DecompressAnimatedUnderworldTiles")
+		a.JSL(0x0C_C237)
+		a.STZ_dp(0x11)
+		a.Comment("LoadUnderworldSupertile")
+		a.JSL(b02LoadUnderworldSupertilePC)
+
+		a.Label("updateVRAM")
+		// this code sets up the DMA transfer parameters for animated BG tiles:
+		a.Comment("NMI_PrepareSprites")
+		a.JSR_abs(0x85FC)
+		a.Comment("NMI_DoUpdates")
+		a.JSR_abs(0x89E0) // NMI_DoUpdates
+
+		// WDM triggers an abort for values >= 10
+		donePC = a.Label("done")
+		a.WDM(0xAA)
+
+		// finalize labels
+		if err = a.Finalize(); err != nil {
+			panic(err)
+		}
+		a.WriteTextTo(e.Logger)
+	}
+
+	{
+		// emit into our custom $00:5300 routine:
+		a = asm.NewEmitter(e.HWIO.Dyn[b00HandleRoomTagsPC&0xFFFF-0x5000:], true)
+		a.SetBase(b00HandleRoomTagsPC)
+
+		a.SEP(0x30)
+
+		a.Comment("Module07_Underworld")
+		a.LDA_imm8_b(0x07)
+		a.STA_dp(0x10)
+		a.STZ_dp(0x11)
+		a.STZ_dp(0xB0)
+
+		//write8(e.WRAM[:], 0x04BA, 0)
+		a.Comment("no cutscene")
+		a.STZ_abs(0x02E4)
+		a.Comment("enable tags")
+		a.STZ_abs(0x04C7)
+
+		//a.Comment("Graphics_LoadChrHalfSlot#_00E43A")
+		//a.JSL(0x00_E43A)
+		a.Comment("Underworld_HandleRoomTags#_01C2FD")
+		a.JSL(0x01_C2FD)
+
+		// check if submodule changed:
+		a.LDA_dp(0x11)
+		a.BEQ("no_submodule")
+
+		a.Label("continue_submodule")
+		a.Comment("JSL Module_MainRouting")
+		a.JSL(0x00_80B5)
+
+		a.Label("no_submodule")
+		// this code sets up the DMA transfer parameters for animated BG tiles:
+		a.Comment("NMI_PrepareSprites")
+		a.JSR_abs(0x85FC)
+
+		// fake NMI:
+		//a.REP(0x30)
+		//a.PHD()
+		//a.PHB()
+		//a.LDA_imm16_w(0)
+		//a.TCD()
+		//a.PHK()
+		//a.PLB()
+		//a.SEP(0x30)
+		a.Comment("NMI_DoUpdates")
+		a.JSR_abs(0x89E0) // NMI_DoUpdates
+		//a.PLB()
+		//a.PLD()
+		a.LDA_dp(0x11)
+		a.BNE("continue_submodule")
+
+		a.STZ_dp(0x11)
+		a.WDM(0xAA)
+
+		// finalize labels
+		if err = a.Finalize(); err != nil {
+			panic(err)
+		}
+		a.WriteTextTo(e.Logger)
+	}
+
+	{
+		// skip over music & sfx loading since we did not implement APU registers:
+		a = newEmitterAt(e, 0x02_8293, true)
+		//#_028293: JSR Underworld_LoadSongBankIfNeeded
+		a.JMP_abs_imm16_w(0x82BC)
+		//.exit
+		//#_0282BC: SEP #$20
+		//#_0282BE: RTL
+		a.WriteTextTo(e.Logger)
+	}
+
+	{
+		// patch out RebuildHUD:
+		a = newEmitterAt(e, 0x0D_FA88, true)
+		//RebuildHUD_Keys:
+		//	#_0DFA88: STA.l $7EF36F
+		a.RTL()
+		a.WriteTextTo(e.Logger)
+	}
+
+	//e.LoggerCPU = os.Stdout
+	_ = loadSupertilePC
+
+	// run the initialization code:
+	if err = e.ExecAt(0x00_5000, donePC); err != nil {
+		panic(err)
+	}
+
+	return
 }
 
 func newEmitterAt(s *System, addr uint32, generateText bool) *asm.Emitter {

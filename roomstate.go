@@ -1045,13 +1045,9 @@ func (r *RoomState) HandleRoomTags(e *System) bool {
 	copy(e.WRAM[:], r.WRAM[:])
 	copy(e.WRAM[0x12000:0x14000], r.Tiles[:])
 
-	if r.Supertile == 0x07C {
-		e.LoggerCPU = e.Logger
-	}
 	if err := e.ExecAt(b00HandleRoomTagsPC, 0); err != nil {
 		panic(err)
 	}
-	e.LoggerCPU = nil
 
 	// update room state:
 	copy(r.WRAM[:], e.WRAM[:])
