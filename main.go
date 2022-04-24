@@ -1,4 +1,4 @@
-package alttp
+package main
 
 import (
 	"bufio"
@@ -20,7 +20,6 @@ import (
 	"io/ioutil"
 	"os"
 	"sync"
-	"testing"
 	"unsafe"
 )
 
@@ -44,13 +43,13 @@ var (
 	donePC                           uint32
 )
 
-func TestGenerateMap(t *testing.T) {
+func main() {
 	var err error
 
 	var f *os.File
 	f, err = os.Open("alttp-jp.sfc")
 	if err != nil {
-		t.Skip(err)
+		panic(err)
 	}
 
 	var e *System
@@ -61,16 +60,16 @@ func TestGenerateMap(t *testing.T) {
 		LoggerCPU: nil,
 	}
 	if err = e.CreateEmulator(); err != nil {
-		t.Fatal(err)
+		panic(err)
 	}
 
 	_, err = f.Read(e.ROM[:])
 	if err != nil {
-		t.Fatal(err)
+		panic(err)
 	}
 	err = f.Close()
 	if err != nil {
-		t.Fatal(err)
+		panic(err)
 	}
 
 	var a *asm.Emitter
@@ -81,7 +80,7 @@ func TestGenerateMap(t *testing.T) {
 	// this is useless zeroing of memory; don't need to run it
 	//#_00802C: JSR Startup_InitializeMemory
 	if err = e.Exec(0x00_8029); err != nil {
-		t.Fatal(err)
+		panic(err)
 	}
 
 	{
@@ -302,7 +301,7 @@ func TestGenerateMap(t *testing.T) {
 
 	// run the initialization code:
 	if err = e.ExecAt(0x00_5000, donePC); err != nil {
-		t.Fatal(err)
+		panic(err)
 	}
 
 	//RoomsWithPitDamage#_00990C [0x70]uint16
@@ -326,7 +325,7 @@ func TestGenerateMap(t *testing.T) {
 		e.HWIO.Dyn[setEntranceIDPC-0x5000] = 0x00
 		// load the entrance and draw the room:
 		if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
-			t.Fatal(err)
+			panic(err)
 		}
 
 		for st := uint16(0); st < 0x128; st++ {
@@ -363,7 +362,7 @@ func TestGenerateMap(t *testing.T) {
 		e.HWIO.Dyn[setEntranceIDPC-0x5000] = eID
 		// load the entrance and draw the room:
 		if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
-			t.Fatal(err)
+			panic(err)
 		}
 
 		g := &entranceGroups[eID]
@@ -1193,7 +1192,7 @@ func TestGenerateMap(t *testing.T) {
 					copy(e.WRAM[:], room.WRAM[:])
 					write16(e.WRAM[:], 0xA0, uint16(room.Supertile))
 					if err = e.ExecAt(loadSupertilePC, donePC); err != nil {
-						t.Fatal(err)
+						panic(err)
 					}
 					copy((&room.VRAMTileSet)[:], (&e.VRAM)[0x4000:0x8000])
 					copy((&room.WRAM)[:], (&e.WRAM)[:])
