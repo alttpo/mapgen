@@ -17,3 +17,4 @@
 data/
 mapgen
 *.sfc
+.DS_Store

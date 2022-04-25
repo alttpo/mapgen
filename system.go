@@ -13,28 +13,90 @@ type System struct {
 	// emulated system:
 	Bus *bus.Bus
 	CPU *cpu65c816.CPU
-	*HWIO
+	HWIO
 
 	ROM  []byte
-	WRAM *[0x20000]byte
-	SRAM *[0x10000]byte
+	WRAM [0x20000]byte
+	SRAM [0x10000]byte
 
-	VRAM *[0x10000]byte
+	VRAM [0x10000]byte
 
 	Logger    io.Writer
 	LoggerCPU io.Writer
 }
 
-func (s *System) CreateEmulator(rom []byte, wram *[0x20000]byte, sram *[0x10000]byte, vram *[0x10000]byte) (err error) {
+func (s *System) CreateEmulatorFrom(initEmu *System) (err error) {
+	s.Logger = initEmu.Logger
+	s.LoggerCPU = initEmu.LoggerCPU
+
+	s.ROM = initEmu.ROM
+	copy(s.WRAM[:], initEmu.WRAM[:])
+	copy(s.VRAM[:], initEmu.VRAM[:])
+	copy(s.SRAM[:], initEmu.SRAM[:])
+
+	s.PPU = initEmu.PPU
+	s.DMA = initEmu.DMA
+	s.DMARegs = initEmu.DMARegs
+	s.HWIO = initEmu.HWIO
+	s.HWIO.s = s
+
+	if err = s.CreateEmulator(); err != nil {
+		return
+	}
+
+	copyCPUState(s.CPU, initEmu.CPU)
+
+	return
+}
+
+func copyCPUState(dst *cpu65c816.CPU, src *cpu65c816.CPU) {
+	dst.AllCycles = src.AllCycles
+	dst.Cycles = src.Cycles
+	dst.Stopped = src.Stopped
+
+	dst.PRK = src.PRK
+	dst.PPC = src.PPC
+	dst.WDM = src.WDM
+
+	dst.PC = src.PC
+	dst.SP = src.SP
+
+	dst.RA = src.RA
+	dst.RX = src.RX
+	dst.RY = src.RY
+
+	dst.RAh = src.RAh
+	dst.RAl = src.RAl
+	dst.RXl = src.RXl
+	dst.RYl = src.RYl
+
+	dst.RDBR = src.RDBR
+	dst.RD = src.RD
+	dst.RK = src.RK
+
+	dst.B = src.B
+	dst.E = src.E
+
+	dst.N = src.N
+	dst.V = src.V
+	dst.M = src.M
+	dst.X = src.X
+	dst.D = src.D
+	dst.I = src.I
+	dst.Z = src.Z
+	dst.C = src.C
+	//dst.SetFlags(src.Flags())
+
+	dst.Interrupt = src.Interrupt
+
+	dst.StepInfo = src.StepInfo
+}
+
+func (s *System) CreateEmulator() (err error) {
 	// create primary A bus for SNES:
 	s.Bus, _ = bus.NewWithSizeHint(0x40*2 + 0x10*2 + 1 + 0x70 + 0x80 + 0x70*2)
 	// Create CPU:
 	s.CPU, _ = cpu65c816.New(s.Bus)
-
-	s.ROM = rom
-	s.WRAM = wram
-	s.SRAM = sram
-	s.VRAM = vram
 
 	// map in ROM to Bus; parts of this mapping will be overwritten:
 	for b := uint32(0); b < 0x40; b++ {
@@ -129,11 +191,11 @@ func (s *System) CreateEmulator(rom []byte, wram *[0x20000]byte, sram *[0x10000]
 
 	// Memory-mapped IO registers:
 	{
-		s.HWIO = &HWIO{s: s}
+		s.HWIO.s = s
 		for b := uint32(0); b < 0x70; b++ {
 			bank := b << 16
 			err = s.Bus.Attach(
-				s.HWIO,
+				&s.HWIO,
 				"hwio",
 				bank|0x2000,
 				bank|0x7FFF,
@@ -144,7 +206,7 @@ func (s *System) CreateEmulator(rom []byte, wram *[0x20000]byte, sram *[0x10000]
 
 			bank = (b + 0x80) << 16
 			err = s.Bus.Attach(
-				s.HWIO,
+				&s.HWIO,
 				"hwio",
 				bank|0x2000,
 				bank|0x7FFF,
