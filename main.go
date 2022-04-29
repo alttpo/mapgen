@@ -84,7 +84,12 @@ func main() {
 		g := &entranceGroups[eID]
 		g.EntranceID = eID
 
-		processEntrance(&e, g, &wg)
+		// process entrances in parallel
+		wg.Add(1)
+		go func() {
+			processEntrance(&e, g, &wg)
+			wg.Done()
+		}()
 	}
 
 	wg.Wait()
@@ -105,17 +110,23 @@ func main() {
 }
 
 func processEntrance(
-	e *System,
+	initEmu *System,
 	g *Entrance,
 	wg *sync.WaitGroup,
 ) {
 	var err error
+
+	e := &System{}
+	if err = e.InitEmulatorFrom(initEmu); err != nil {
+		panic(err)
+	}
 
 	eID := g.EntranceID
 	fmt.Fprintf(e.Logger, "entrance $%02x\n", eID)
 
 	// poke the entrance ID into our asm code:
 	e.HWIO.Dyn[setEntranceIDPC-0x5000] = eID
+
 	// load the entrance and draw the room:
 	if eID > 0 {
 		//e.LoggerCPU = os.Stdout
@@ -173,6 +184,7 @@ func processEntrance(
 		supertilesLock.Unlock()
 
 		// emulate loading the room:
+		room.Lock()
 		if err = room.Init(); err != nil {
 			panic(err)
 		}
@@ -510,6 +522,8 @@ func processEntrance(
 		)
 
 		//ioutil.WriteFile(fmt.Sprintf("data/%03X.rch", uint16(this)), room.Reachable[:], 0644)
+
+		room.Unlock()
 	}
 
 	// render all supertiles found:

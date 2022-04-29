@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"io/ioutil"
+	"sync"
 )
 
 type ScanState struct {
@@ -33,6 +34,8 @@ func (ep EntryPoint) String() string {
 }
 
 type RoomState struct {
+	sync.Mutex
+
 	Supertile
 
 	Rendered image.Image
