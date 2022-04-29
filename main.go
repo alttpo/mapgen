@@ -41,7 +41,7 @@ func main() {
 		ROM:       make([]byte, 0x100_0000),
 	}
 
-	if err = e.CreateEmulator(); err != nil {
+	if err = e.InitEmulator(); err != nil {
 		panic(err)
 	}
 

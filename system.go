@@ -9,6 +9,10 @@ import (
 	"io"
 )
 
+type WRAMArray = [0x20000]byte
+type SRAMArray = [0x10000]byte
+type VRAMArray = [0x10000]byte
+
 type System struct {
 	// emulated system:
 	bus.Bus
@@ -16,23 +20,40 @@ type System struct {
 	HWIO
 
 	ROM  []byte
-	WRAM [0x20000]byte
-	SRAM [0x10000]byte
+	WRAM *WRAMArray
+	SRAM *SRAMArray
 
-	VRAM [0x10000]byte
+	VRAM *VRAMArray
 
 	Logger    io.Writer
 	LoggerCPU io.Writer
 }
 
-func (s *System) CreateEmulatorFrom(initEmu *System) (err error) {
+func (s *System) InitMemory() {
+	// allocate memory space if not already assigned:
+	if s.WRAM == nil {
+		s.WRAM = &WRAMArray{}
+	}
+	if s.SRAM == nil {
+		s.SRAM = &SRAMArray{}
+	}
+	if s.VRAM == nil {
+		s.VRAM = &VRAMArray{}
+	}
+}
+
+func (s *System) InitEmulatorFrom(initEmu *System) (err error) {
+	s.InitMemory()
+
 	s.Logger = initEmu.Logger
 	s.LoggerCPU = initEmu.LoggerCPU
 
 	s.ROM = initEmu.ROM
-	s.WRAM = initEmu.WRAM
-	s.SRAM = initEmu.SRAM
-	s.VRAM = initEmu.VRAM
+
+	// copy memory contents:
+	*s.WRAM = *initEmu.WRAM
+	*s.SRAM = *initEmu.SRAM
+	*s.VRAM = *initEmu.VRAM
 
 	s.HWIO = initEmu.HWIO
 
@@ -52,7 +73,9 @@ func (s *System) CreateEmulatorFrom(initEmu *System) (err error) {
 	return
 }
 
-func (s *System) CreateEmulator() (err error) {
+func (s *System) InitEmulator() (err error) {
+	s.InitMemory()
+
 	// create primary A bus for SNES:
 	s.Bus.Init(0x40*2 + 0x10*2 + 1 + 0x70 + 0x80 + 0x70*2)
 

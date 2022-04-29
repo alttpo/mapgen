@@ -87,14 +87,15 @@ func CreateRoom(st Supertile, initEmu *System) (room *RoomState) {
 	room.TilesVisited = room.TilesVisitedStar0
 
 	e := &room.e
-
-	wram := (&e.WRAM)[:]
-	vram := (&e.VRAM)[:]
-	tiles := room.Tiles[:]
-
-	if err = e.CreateEmulatorFrom(initEmu); err != nil {
+	// have the emulator's WRAM refer to room.WRAM
+	e.WRAM = &room.WRAM
+	if err = e.InitEmulatorFrom(initEmu); err != nil {
 		panic(err)
 	}
+
+	wram := (e.WRAM)[:]
+	vram := (e.VRAM)[:]
+	tiles := room.Tiles[:]
 
 	// load and draw current supertile:
 	write16(wram, 0xA0, uint16(st))
@@ -104,7 +105,6 @@ func CreateRoom(st Supertile, initEmu *System) (room *RoomState) {
 	}
 	e.LoggerCPU = nil
 
-	copy((&room.WRAM)[:], wram)
 	copy((&room.VRAMTileSet)[:], vram[0x4000:0x8000])
 	copy(tiles, wram[0x12000:0x14000])
 
@@ -1486,7 +1486,6 @@ func (r *RoomState) HandleRoomTags() bool {
 	old04BC := read8(r.WRAM[:], 0x04BC)
 
 	// prepare emulator for execution within this supertile:
-	copy(e.WRAM[:], r.WRAM[:])
 	copy(e.WRAM[0x12000:0x14000], r.Tiles[:])
 
 	if err := e.ExecAt(b00HandleRoomTagsPC, 0); err != nil {
@@ -1494,7 +1493,6 @@ func (r *RoomState) HandleRoomTags() bool {
 	}
 
 	// update room state:
-	copy(r.WRAM[:], e.WRAM[:])
 	copy(r.Tiles[:], e.WRAM[0x12000:0x14000])
 
 	// if $AE or $AF (room tags) are modified, then the tag was activated:
