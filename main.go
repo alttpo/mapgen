@@ -104,9 +104,17 @@ func main() {
 	}
 	fmt.Printf("}\n")
 
-	// condense all maps into one image:
-	renderAll("eg1", entranceGroups, 0x00, 0x10)
-	renderAll("eg2", entranceGroups, 0x10, 0x3)
+	// condense all maps into big atlas images:
+	wg.Add(2)
+	go func() {
+		renderAll("eg1", entranceGroups, 0x00, 0x10)
+		wg.Done()
+	}()
+	go func() {
+		renderAll("eg2", entranceGroups, 0x10, 0x3)
+		wg.Done()
+	}()
+	wg.Wait()
 }
 
 func processEntrance(
@@ -122,7 +130,7 @@ func processEntrance(
 	}
 
 	eID := g.EntranceID
-	fmt.Fprintf(e.Logger, "entrance $%02x\n", eID)
+	fmt.Printf("entrance $%02x load start\n", eID)
 
 	// poke the entrance ID into our asm code:
 	e.HWIO.Dyn[setEntranceIDPC-0x5000] = eID
@@ -136,6 +144,8 @@ func processEntrance(
 	}
 	e.LoggerCPU = nil
 
+	fmt.Printf("entrance $%02x load complete\n", eID)
+
 	g.Supertile = Supertile(read16(e.WRAM[:], 0xA0))
 
 	{
@@ -145,7 +155,7 @@ func processEntrance(
 		linkY := read16(wram, 0x20)
 		linkLayer := read16(wram, 0xEE)
 		g.EntryCoord = AbsToMapCoord(linkX, linkY, linkLayer)
-		fmt.Fprintf(e.Logger, "  link coord = {%04x, %04x, %04x}\n", linkX, linkY, linkLayer)
+		//fmt.Printf("  link coord = {%04x, %04x, %04x}\n", linkX, linkY, linkLayer)
 	}
 
 	g.Rooms = make([]*RoomState, 0, 0x20)
@@ -163,7 +173,7 @@ func processEntrance(
 
 		this := ep.Supertile
 
-		fmt.Fprintf(e.Logger, "  ep = %s\n", ep)
+		//fmt.Printf("  ep = %s\n", ep)
 
 		// create a room:
 		var room *RoomState
@@ -171,7 +181,7 @@ func processEntrance(
 		supertilesLock.Lock()
 		var ok bool
 		if room, ok = supertiles[this]; ok {
-			fmt.Printf("    reusing room %s\n", this)
+			//fmt.Printf("    reusing room %s\n", this)
 			//if eID != room.EntranceID {
 			//	panic(fmt.Errorf("conflicting entrances for room %s", st))
 			//}
@@ -185,6 +195,8 @@ func processEntrance(
 
 		// emulate loading the room:
 		room.Lock()
+		fmt.Printf("entrance $%02x supertile %s discover from entry %s start\n", eID, room.Supertile, ep)
+
 		if err = room.Init(); err != nil {
 			panic(err)
 		}
@@ -213,7 +225,7 @@ func processEntrance(
 			})
 
 			lifo = append(lifo, ep)
-			fmt.Fprintf(e.Logger, "    %s to %s\n", name, ep)
+			//fmt.Printf("    %s to %s\n", name, ep)
 		}
 
 		// dont need to read interroom stair list from $06B0; just link stair tile number to STAIRnTO exit
@@ -457,9 +469,9 @@ func processEntrance(
 						// find gfx tilemap position:
 						j := (uint32(v) & 0x0F) << 1
 						p := read16(room.WRAM[:], 0x0500+j)
-						fmt.Fprintf(e.Logger, "    manip(%s) %02x = %04x\n", t, v, p)
+						//fmt.Printf("    manip(%s) %02x = %04x\n", t, v, p)
 						if p == 0 {
-							fmt.Fprintf(e.Logger, "    pushBlock(%s)\n", t)
+							//fmt.Printf("    pushBlock(%s)\n", t)
 
 							// push block flips 0x0641
 							write8(room.WRAM[:], 0x0641, 0x01)
@@ -475,7 +487,7 @@ func processEntrance(
 
 					v16 := read16(room.Tiles[:], uint32(t))
 					if v16 == 0x3A3A || v16 == 0x3B3B {
-						fmt.Fprintf(e.Logger, "    star(%s)\n", t)
+						//fmt.Printf("    star(%s)\n", t)
 
 						// set absolute x,y coordinates to the tile:
 						x, y := t.ToAbsCoord(room.Supertile)
@@ -487,11 +499,11 @@ func processEntrance(
 
 						// swap out visited maps:
 						if read8(room.WRAM[:], 0x04BC) == 0 {
-							fmt.Fprintf(e.Logger, "    star0\n")
+							//fmt.Printf("    star0\n")
 							room.TilesVisited = room.TilesVisitedStar0
 							//ioutil.WriteFile(fmt.Sprintf("data/%03X.cmap0", uint16(this)), room.Tiles[:], 0644)
 						} else {
-							fmt.Fprintf(e.Logger, "    star1\n")
+							//fmt.Printf("    star1\n")
 							room.TilesVisited = room.TilesVisitedStar1
 							//ioutil.WriteFile(fmt.Sprintf("data/%03X.cmap1", uint16(this)), room.Tiles[:], 0644)
 						}
@@ -500,7 +512,7 @@ func processEntrance(
 
 					// floor or pressure switch:
 					if v16 == 0x2323 || v16 == 0x2424 {
-						fmt.Fprintf(e.Logger, "    switch(%s)\n", t)
+						//fmt.Printf("    switch(%s)\n", t)
 
 						// set absolute x,y coordinates to the tile:
 						x, y := t.ToAbsCoord(room.Supertile)
@@ -523,15 +535,14 @@ func processEntrance(
 
 		//ioutil.WriteFile(fmt.Sprintf("data/%03X.rch", uint16(this)), room.Reachable[:], 0644)
 
+		fmt.Printf("entrance $%02x supertile %s discover from entry %s complete\n", eID, room.Supertile, ep)
 		room.Unlock()
 	}
 
 	// render all supertiles found:
 	for _, room := range g.Rooms {
-		fmt.Fprintf(e.Logger, "  render %s\n", room.Supertile)
-
 		wg.Add(1)
-		go drawSupertile(wg, room)
+		go drawSupertile(wg, g, room)
 
 		// render VRAM BG tiles to a PNG:
 		if false {

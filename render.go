@@ -21,7 +21,7 @@ func renderAll(fname string, entranceGroups []Entrance, rowStart int, rowCount i
 	const divider = 1
 	supertilepx := 512 / divider
 
-	wga := sync.WaitGroup{}
+	wga := &sync.WaitGroup{}
 
 	all := image.NewNRGBA(image.Rect(0, 0, 0x10*supertilepx, (rowCount*0x10*supertilepx)/0x10))
 	// clear the image and remove alpha layer
@@ -39,15 +39,12 @@ func renderAll(fname string, entranceGroups []Entrance, rowStart int, rowCount i
 
 	black := image.NewUniform(color.RGBA{0, 0, 0, 255})
 	yellow := image.NewUniform(color.RGBA{255, 255, 0, 255})
+	white := image.NewUniform(color.RGBA{255, 255, 255, 255})
 
 	for i := range entranceGroups {
 		g := &entranceGroups[i]
 		for _, room := range g.Rooms {
 			st := int(room.Supertile)
-			stMap := room.Rendered
-			if stMap == nil {
-				continue
-			}
 
 			row := st/0x10 - rowStart
 			col := st % 0x10
@@ -57,15 +54,22 @@ func renderAll(fname string, entranceGroups []Entrance, rowStart int, rowCount i
 
 			wga.Add(1)
 			go func(room *RoomState) {
+				defer wga.Done()
+
+				fmt.Printf("entrance $%02x supertile %s render start\n", g.EntranceID, room.Supertile)
+
 				stx := col * supertilepx
 				sty := row * supertilepx
-				draw.Draw(
-					all,
-					image.Rect(stx, sty, stx+supertilepx, sty+supertilepx),
-					stMap,
-					image.Point{},
-					draw.Src,
-				)
+
+				if room.Rendered != nil {
+					draw.Draw(
+						all,
+						image.Rect(stx, sty, stx+supertilepx, sty+supertilepx),
+						room.Rendered,
+						image.Point{},
+						draw.Src,
+					)
+				}
 
 				// highlight tiles that are reachable:
 				if drawOverlays {
@@ -170,24 +174,46 @@ func renderAll(fname string, entranceGroups []Entrance, rowStart int, rowCount i
 					}
 				}
 
-				// draw supertile number in top-left:
-				stStr := fmt.Sprintf("%03X", uint16(room.Supertile))
-				(&font.Drawer{
-					Dst:  all,
-					Src:  image.NewUniform(color.RGBA{0, 0, 0, 255}),
-					Face: inconsolata.Bold8x16,
-					Dot:  fixed.Point26_6{fixed.I(stx + 5), fixed.I(sty + 5 + 12)},
-				}).DrawString(stStr)
-				(&font.Drawer{
-					Dst:  all,
-					Src:  image.NewUniform(color.RGBA{255, 255, 255, 255}),
-					Face: inconsolata.Bold8x16,
-					Dot:  fixed.Point26_6{fixed.I(stx + 4), fixed.I(sty + 4 + 12)},
-				}).DrawString(stStr)
-
-				wga.Done()
+				fmt.Printf("entrance $%02x supertile %s render complete\n", g.EntranceID, room.Supertile)
 			}(room)
 		}
+	}
+	wga.Wait()
+
+	for r := 0; r < 0x128; r++ {
+		wga.Add(1)
+		go func(st int) {
+			defer wga.Done()
+
+			row := st/0x10 - rowStart
+			col := st % 0x10
+			if row < 0 || row >= rowCount {
+				return
+			}
+
+			stx := col * supertilepx
+			sty := row * supertilepx
+
+			// draw supertile number in top-left:
+			var stStr string
+			if st < 0x100 {
+				stStr = fmt.Sprintf("%02X", st)
+			} else {
+				stStr = fmt.Sprintf("%03X", st)
+			}
+			(&font.Drawer{
+				Dst:  all,
+				Src:  black,
+				Face: inconsolata.Bold8x16,
+				Dot:  fixed.Point26_6{fixed.I(stx + 5), fixed.I(sty + 5 + 12)},
+			}).DrawString(stStr)
+			(&font.Drawer{
+				Dst:  all,
+				Src:  white,
+				Face: inconsolata.Bold8x16,
+				Dot:  fixed.Point26_6{fixed.I(stx + 4), fixed.I(sty + 4 + 12)},
+			}).DrawString(stStr)
+		}(r)
 	}
 	wga.Wait()
 
@@ -196,9 +222,13 @@ func renderAll(fname string, entranceGroups []Entrance, rowStart int, rowCount i
 	}
 }
 
-func drawSupertile(wg *sync.WaitGroup, room *RoomState) {
-	//var err error
-	defer wg.Done()
+func drawSupertile(wg *sync.WaitGroup, g *Entrance, room *RoomState) {
+	fmt.Printf("entrance $%02x supertile %s draw start\n", g.EntranceID, room.Supertile)
+
+	defer func() {
+		fmt.Printf("entrance $%02x supertile %s draw complete\n", g.EntranceID, room.Supertile)
+		wg.Done()
+	}()
 
 	// gfx output is:
 	//  s.VRAM: $4000[0x2000] = 4bpp tile graphics

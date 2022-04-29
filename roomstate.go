@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"image"
-	"io/ioutil"
 	"sync"
 )
 
@@ -77,7 +76,7 @@ type RoomState struct {
 func CreateRoom(st Supertile, initEmu *System) (room *RoomState) {
 	var err error
 
-	fmt.Printf("    creating room %s\n", st)
+	//fmt.Printf("    creating room %s\n", st)
 
 	room = &RoomState{
 		Supertile:         st,
@@ -130,7 +129,7 @@ func (room *RoomState) Init() (err error) {
 	}
 
 	//ioutil.WriteFile(fmt.Sprintf("data/%03X.wram", uint16(st)), wram, 0644)
-	ioutil.WriteFile(fmt.Sprintf("data/%03X.tmap", uint16(st)), tiles, 0644)
+	//ioutil.WriteFile(fmt.Sprintf("data/%03X.tmap", uint16(st)), tiles, 0644)
 
 	room.WarpExitTo = Supertile(read8(wram, 0xC000))
 	room.StairExitTo = [4]Supertile{
@@ -147,14 +146,14 @@ func (room *RoomState) Init() (err error) {
 		MapCoord(read8(wram, uint32(0x0640))&2) << 11,
 	}
 
-	fmt.Fprintf(e.Logger, "    TAG1 = %02x\n", read8(wram, 0xAE))
-	fmt.Fprintf(e.Logger, "    TAG2 = %02x\n", read8(wram, 0xAF))
-	//fmt.Fprintf(s.Logger, "    WARPTO   = %s\n", Supertile(read8(wram, 0xC000)))
-	//fmt.Fprintf(s.Logger, "    STAIR0TO = %s\n", Supertile(read8(wram, 0xC001)))
-	//fmt.Fprintf(s.Logger, "    STAIR1TO = %s\n", Supertile(read8(wram, 0xC002)))
-	//fmt.Fprintf(s.Logger, "    STAIR2TO = %s\n", Supertile(read8(wram, 0xC003)))
-	//fmt.Fprintf(s.Logger, "    STAIR3TO = %s\n", Supertile(read8(wram, 0xC004)))
-	//fmt.Fprintf(s.Logger, "    DARK     = %v\n", room.IsDarkRoom())
+	//fmt.Printf("    TAG1 = %02x\n", read8(wram, 0xAE))
+	//fmt.Printf("    TAG2 = %02x\n", read8(wram, 0xAF))
+	//fmt.Printf("    WARPTO   = %s\n", Supertile(read8(wram, 0xC000)))
+	//fmt.Printf("    STAIR0TO = %s\n", Supertile(read8(wram, 0xC001)))
+	//fmt.Printf("    STAIR1TO = %s\n", Supertile(read8(wram, 0xC002)))
+	//fmt.Printf("    STAIR2TO = %s\n", Supertile(read8(wram, 0xC003)))
+	//fmt.Printf("    STAIR3TO = %s\n", Supertile(read8(wram, 0xC004)))
+	//fmt.Printf("    DARK     = %v\n", room.IsDarkRoom())
 
 	// process doors first:
 	doors := make([]Door, 0, 16)
@@ -162,7 +161,7 @@ func (room *RoomState) Init() (err error) {
 		tpos := read16(wram, uint32(0x19A0+(m<<1)))
 		// stop marker:
 		if tpos == 0 {
-			//fmt.Fprintf(s.Logger, "    door stop at marker\n")
+			//fmt.Printf("    door stop at marker\n")
 			break
 		}
 
@@ -173,7 +172,7 @@ func (room *RoomState) Init() (err error) {
 		}
 		doors = append(doors, door)
 
-		fmt.Fprintf(e.Logger, "    door: %v\n", door)
+		//fmt.Printf("    door: %v\n", door)
 
 		isDoorEdge, _, _, _ := door.Pos.IsDoorEdge()
 
@@ -222,7 +221,7 @@ func (room *RoomState) Init() (err error) {
 		if door.Type == 0x30 {
 			// exploding wall:
 			pos := int(door.Pos)
-			fmt.Printf("    exploding wall %s\n", door.Pos)
+			//fmt.Printf("    exploding wall %s\n", door.Pos)
 			for c := 0; c < 11; c++ {
 				for r := 0; r < 12; r++ {
 					tiles[pos+(r<<6)-c] = 0
@@ -294,9 +293,9 @@ func (room *RoomState) Init() (err error) {
 			for i := 0; i < 12; i++ {
 				v := tiles[tn]
 				if canBlow(v) {
-					fmt.Printf("    blow open %s\n", tn)
+					//fmt.Printf("    blow open %s\n", tn)
 					tiles[tn] = doorwayTile
-					fmt.Printf("    blow open %s\n", MapCoord(int(tn)+adj))
+					//fmt.Printf("    blow open %s\n", MapCoord(int(tn)+adj))
 					tiles[int(tn)+adj] = doorwayTile
 				} else {
 					panic(fmt.Errorf("something blocking the doorway at %s: $%02x", tn, v))
@@ -401,7 +400,7 @@ func (room *RoomState) Init() (err error) {
 				}
 			} else {
 				// bad door starter tile type
-				fmt.Fprintf(e.Logger, fmt.Sprintf("unrecognized door tile at %s: $%02x\n", start, doorTileType))
+				//fmt.Printf(fmt.Sprintf("unrecognized door tile at %s: $%02x\n", start, doorTileType))
 				continue
 			}
 
@@ -467,7 +466,7 @@ func (room *RoomState) Init() (err error) {
 	for i := uint32(0); i < stairCount; i += 2 {
 		t := MapCoord(read16(wram, 0x06B0+i))
 		room.Stairs = append(room.Stairs, t)
-		fmt.Fprintf(e.Logger, "    interroom stair at %s\n", t)
+		//fmt.Printf("    interroom stair at %s\n", t)
 	}
 
 	for i := uint32(0); i < 0x20; i += 2 {
@@ -475,17 +474,17 @@ func (room *RoomState) Init() (err error) {
 		if pos == 0 {
 			break
 		}
-		fmt.Printf(
-			"    manipulable(%s): %02x, %04x @%04x -> %04x%04x,%04x%04x\n",
-			pos,
-			i,
-			read16(wram, 0x0500+i), // MANIPPROPS
-			read16(wram, 0x0520+i), // MANIPOBJX
-			read16(wram, 0x0560+i), // MANIPRTNW
-			read16(wram, 0x05A0+i), // MANIPRTNE
-			read16(wram, 0x0580+i), // MANIPRTSW
-			read16(wram, 0x05C0+i), // MANIPRTSE
-		)
+		//fmt.Printf(
+		//	"    manipulable(%s): %02x, %04x @%04x -> %04x%04x,%04x%04x\n",
+		//	pos,
+		//	i,
+		//	read16(wram, 0x0500+i), // MANIPPROPS
+		//	read16(wram, 0x0520+i), // MANIPOBJX
+		//	read16(wram, 0x0560+i), // MANIPRTNW
+		//	read16(wram, 0x05A0+i), // MANIPRTNE
+		//	read16(wram, 0x0580+i), // MANIPRTSW
+		//	read16(wram, 0x05C0+i), // MANIPRTSE
+		//)
 	}
 
 	for i := uint32(0); i < 6; i++ {
@@ -494,7 +493,7 @@ func (room *RoomState) Init() (err error) {
 			break
 		}
 
-		fmt.Printf("    chest($%04x)\n", gt)
+		//fmt.Printf("    chest($%04x)\n", gt)
 
 		if gt&0x8000 != 0 {
 			// locked cell door:
