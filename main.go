@@ -25,6 +25,13 @@ var (
 	donePC                           uint32
 )
 
+var roomsWithPitDamage map[Supertile]bool
+
+var (
+	supertiles     map[Supertile]*RoomState
+	supertilesLock sync.Mutex
+)
+
 func main() {
 	var err error
 
@@ -57,7 +64,7 @@ func main() {
 	setupAlttp(&e)
 
 	//RoomsWithPitDamage#_00990C [0x70]uint16
-	roomsWithPitDamage := make(map[Supertile]bool, 0x128)
+	roomsWithPitDamage = make(map[Supertile]bool, 0x128)
 	for i := Supertile(0); i < 0x128; i++ {
 		roomsWithPitDamage[i] = false
 	}
@@ -69,20 +76,15 @@ func main() {
 
 	const entranceCount = 0x85
 	entranceGroups := make([]Entrance, entranceCount)
-	supertiles := make(map[Supertile]*RoomState, 0x128)
+	supertiles = make(map[Supertile]*RoomState, 0x128)
 
 	// iterate over entrances:
 	wg := sync.WaitGroup{}
 	for eID := uint8(0); eID < entranceCount; eID++ {
-		processEntrance(
-			&e,
-			eID,
-			err,
-			entranceGroups,
-			supertiles,
-			roomsWithPitDamage,
-			&wg,
-		)
+		g := &entranceGroups[eID]
+		g.EntranceID = eID
+
+		processEntrance(&e, g, &wg)
 	}
 
 	wg.Wait()
@@ -104,13 +106,12 @@ func main() {
 
 func processEntrance(
 	e *System,
-	eID uint8,
-	err error,
-	entranceGroups []Entrance,
-	supertiles map[Supertile]*RoomState,
-	roomsWithPitDamage map[Supertile]bool,
+	g *Entrance,
 	wg *sync.WaitGroup,
 ) {
+	var err error
+
+	eID := g.EntranceID
 	fmt.Fprintf(e.Logger, "entrance $%02x\n", eID)
 
 	// poke the entrance ID into our asm code:
@@ -124,8 +125,6 @@ func processEntrance(
 	}
 	e.LoggerCPU = nil
 
-	g := &entranceGroups[eID]
-	g.EntranceID = eID
 	g.Supertile = Supertile(read16(e.WRAM[:], 0xA0))
 
 	{
@@ -155,8 +154,10 @@ func processEntrance(
 
 		fmt.Fprintf(e.Logger, "  ep = %s\n", ep)
 
-		// create a room by emulation:
+		// create a room:
 		var room *RoomState
+
+		supertilesLock.Lock()
 		var ok bool
 		if room, ok = supertiles[this]; ok {
 			fmt.Printf("    reusing room %s\n", this)
@@ -166,9 +167,14 @@ func processEntrance(
 		} else {
 			// create new room:
 			room = CreateRoom(this, e)
-
 			g.Rooms = append(g.Rooms, room)
 			supertiles[this] = room
+		}
+		supertilesLock.Unlock()
+
+		// emulate loading the room:
+		if err = room.Init(); err != nil {
+			panic(err)
 		}
 
 		// check if room causes pit damage vs warp:
@@ -826,8 +832,7 @@ type Entrance struct {
 
 	EntryCoord MapCoord
 
-	Rooms      []*RoomState
-	Supertiles map[Supertile]*RoomState
+	Rooms []*RoomState
 }
 
 func read16(b []byte, addr uint32) uint16 {

@@ -68,6 +68,7 @@ type RoomState struct {
 	markedFloor bool
 	lifoSpace   [0x2000]ScanState
 	lifo        []ScanState
+	IsLoaded    bool
 }
 
 func CreateRoom(st Supertile, initEmu *System) (room *RoomState) {
@@ -87,12 +88,24 @@ func CreateRoom(st Supertile, initEmu *System) (room *RoomState) {
 	room.TilesVisited = room.TilesVisitedStar0
 
 	e := &room.e
+
 	// have the emulator's WRAM refer to room.WRAM
 	e.WRAM = &room.WRAM
 	if err = e.InitEmulatorFrom(initEmu); err != nil {
 		panic(err)
 	}
 
+	return
+}
+
+func (room *RoomState) Init() (err error) {
+	if room.IsLoaded {
+		return
+	}
+
+	st := room.Supertile
+
+	e := &room.e
 	wram := (e.WRAM)[:]
 	vram := (e.VRAM)[:]
 	tiles := room.Tiles[:]
@@ -101,7 +114,7 @@ func CreateRoom(st Supertile, initEmu *System) (room *RoomState) {
 	write16(wram, 0xA0, uint16(st))
 	//e.LoggerCPU = e.Logger
 	if err = e.ExecAt(loadSupertilePC, donePC); err != nil {
-		panic(err)
+		return
 	}
 	e.LoggerCPU = nil
 
@@ -506,6 +519,8 @@ func CreateRoom(st Supertile, initEmu *System) (room *RoomState) {
 	room.HandleRoomTags()
 
 	//ioutil.WriteFile(fmt.Sprintf("data/%03X.cmap", uint16(st)), (&room.Tiles)[:], 0644)
+
+	room.IsLoaded = true
 
 	return
 }
