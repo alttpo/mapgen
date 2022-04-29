@@ -101,28 +101,7 @@ func main() {
 			fmt.Fprintf(e.Logger, "  link coord = {%04x, %04x, %04x}\n", linkX, linkY, linkLayer)
 		}
 
-		//continue
-
 		g.Rooms = make([]*RoomState, 0, 0x20)
-
-		// function to create a room and track it:
-		createRoom := func(st Supertile) (room *RoomState) {
-			var ok bool
-			if room, ok = supertiles[st]; ok {
-				fmt.Printf("    reusing room %s\n", st)
-				//if eID != room.EntranceID {
-				//	panic(fmt.Errorf("conflicting entrances for room %s", st))
-				//}
-				return
-			}
-
-			room = CreateRoom(st, &e)
-
-			g.Rooms = append(g.Rooms, room)
-			supertiles[st] = room
-
-			return room
-		}
 
 		// build a stack (LIFO) of supertile entry points to visit:
 		lifo := make([]EntryPoint, 0, 0x100)
@@ -140,7 +119,20 @@ func main() {
 			fmt.Fprintf(e.Logger, "  ep = %s\n", ep)
 
 			// create a room by emulation:
-			room := createRoom(this)
+			var room *RoomState
+			var ok bool
+			if room, ok = supertiles[this]; ok {
+				fmt.Printf("    reusing room %s\n", this)
+				//if eID != room.EntranceID {
+				//	panic(fmt.Errorf("conflicting entrances for room %s", st))
+				//}
+			} else {
+				// create new room:
+				room = CreateRoom(this, &e)
+
+				g.Rooms = append(g.Rooms, room)
+				supertiles[this] = room
+			}
 
 			// check if room causes pit damage vs warp:
 			// RoomsWithPitDamage#_00990C [0x70]uint16
