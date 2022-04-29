@@ -60,7 +60,7 @@ type RoomState struct {
 	Reachable [0x2000]byte
 	Hookshot  map[MapCoord]byte
 
-	e           *System
+	e           System
 	WRAM        [0x20000]byte
 	VRAMTileSet [0x4000]byte
 
@@ -85,11 +85,11 @@ func CreateRoom(st Supertile, initEmu *System) (room *RoomState) {
 		TilesVisitedTag1:  make(map[MapCoord]empty, 0x2000),
 	}
 	room.TilesVisited = room.TilesVisitedStar0
-	room.e = &System{}
 
-	e := room.e
-	wram := e.WRAM[:]
-	vram := e.VRAM[:]
+	e := &room.e
+
+	wram := (&e.WRAM)[:]
+	vram := (&e.VRAM)[:]
 	tiles := room.Tiles[:]
 
 	if err = e.CreateEmulatorFrom(initEmu); err != nil {
@@ -97,12 +97,15 @@ func CreateRoom(st Supertile, initEmu *System) (room *RoomState) {
 	}
 
 	// load and draw current supertile:
-	write16(e.WRAM[:], 0xA0, uint16(st))
+	write16(wram, 0xA0, uint16(st))
+	//e.LoggerCPU = e.Logger
 	if err = e.ExecAt(loadSupertilePC, donePC); err != nil {
 		panic(err)
 	}
+	e.LoggerCPU = nil
 
-	copy(room.VRAMTileSet[:], vram[0x4000:0x8000])
+	copy((&room.WRAM)[:], wram)
+	copy((&room.VRAMTileSet)[:], vram[0x4000:0x8000])
 	copy(tiles, wram[0x12000:0x14000])
 
 	// make a map full of $01 Collision and carve out reachable areas:
@@ -1472,7 +1475,7 @@ func (r *RoomState) scanHookshot(t MapCoord, d Direction) {
 }
 
 func (r *RoomState) HandleRoomTags() bool {
-	e := r.e
+	e := &r.e
 
 	// if no tags present, don't check them:
 	oldAE, oldAF := read8(r.WRAM[:], 0xAE), read8(r.WRAM[:], 0xAF)
@@ -1483,6 +1486,7 @@ func (r *RoomState) HandleRoomTags() bool {
 	old04BC := read8(r.WRAM[:], 0x04BC)
 
 	// prepare emulator for execution within this supertile:
+	copy(e.WRAM[:], r.WRAM[:])
 	copy(e.WRAM[0x12000:0x14000], r.Tiles[:])
 
 	if err := e.ExecAt(b00HandleRoomTagsPC, 0); err != nil {
@@ -1490,6 +1494,7 @@ func (r *RoomState) HandleRoomTags() bool {
 	}
 
 	// update room state:
+	copy(r.WRAM[:], e.WRAM[:])
 	copy(r.Tiles[:], e.WRAM[0x12000:0x14000])
 
 	// if $AE or $AF (room tags) are modified, then the tag was activated:

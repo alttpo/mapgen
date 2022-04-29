@@ -34,10 +34,8 @@ func main() {
 		panic(err)
 	}
 
-	var e *System
-
 	// create the CPU-only SNES emulator:
-	e = &System{
+	e := System{
 		Logger:    os.Stdout,
 		LoggerCPU: nil,
 		ROM:       make([]byte, 0x100_0000),
@@ -56,7 +54,7 @@ func main() {
 		panic(err)
 	}
 
-	setupAlttp(e)
+	setupAlttp(&e)
 
 	//RoomsWithPitDamage#_00990C [0x70]uint16
 	roomsWithPitDamage := make(map[Supertile]bool, 0x128)
@@ -82,7 +80,7 @@ func main() {
 		e.HWIO.Dyn[setEntranceIDPC-0x5000] = eID
 		// load the entrance and draw the room:
 		if eID > 0 {
-			e.LoggerCPU = os.Stdout
+			//e.LoggerCPU = os.Stdout
 		}
 		if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
 			panic(err)
@@ -103,6 +101,8 @@ func main() {
 			fmt.Fprintf(e.Logger, "  link coord = {%04x, %04x, %04x}\n", linkX, linkY, linkLayer)
 		}
 
+		//continue
+
 		g.Rooms = make([]*RoomState, 0, 0x20)
 
 		// function to create a room and track it:
@@ -116,7 +116,7 @@ func main() {
 				return
 			}
 
-			room = CreateRoom(st, e)
+			room = CreateRoom(st, &e)
 
 			g.Rooms = append(g.Rooms, room)
 			supertiles[st] = room
@@ -479,45 +479,32 @@ func main() {
 
 		// render all supertiles found:
 		for _, room := range g.Rooms {
+			fmt.Fprintf(e.Logger, "  render %s\n", room.Supertile)
+
+			wg.Add(1)
+			go drawSupertile(&wg, room)
+
+			// render VRAM BG tiles to a PNG:
 			if false {
-				// loadSupertile:
-				copy(e.WRAM[:], room.WRAM[:])
-				write16(e.WRAM[:], 0xA0, uint16(room.Supertile))
-				if err = e.ExecAt(loadSupertilePC, donePC); err != nil {
-					panic(err)
+				cgram := (*(*[0x100]uint16)(unsafe.Pointer(&room.WRAM[0xC300])))[:]
+				pal := cgramToPalette(cgram)
+
+				tiles := 0x4000 / 32
+				g := image.NewPaletted(image.Rect(0, 0, 16*8, (tiles/16)*8), pal)
+				for t := 0; t < tiles; t++ {
+					// palette 2
+					z := uint16(t) | (2 << 10)
+					draw4bppTile(
+						g,
+						z,
+						(&room.VRAMTileSet)[:],
+						t%16,
+						t/16,
+					)
 				}
-				copy(room.VRAMTileSet[:], e.VRAM[0x4000:0x8000])
-				copy(room.WRAM[:], e.WRAM[:])
-			}
 
-			{
-				fmt.Fprintf(e.Logger, "  render %s\n", room.Supertile)
-
-				wg.Add(1)
-				go drawSupertile(&wg, room)
-
-				// render VRAM BG tiles to a PNG:
-				if false {
-					cgram := (*(*[0x100]uint16)(unsafe.Pointer(&room.WRAM[0xC300])))[:]
-					pal := cgramToPalette(cgram)
-
-					tiles := 0x4000 / 32
-					g := image.NewPaletted(image.Rect(0, 0, 16*8, (tiles/16)*8), pal)
-					for t := 0; t < tiles; t++ {
-						// palette 2
-						z := uint16(t) | (2 << 10)
-						draw4bppTile(
-							g,
-							z,
-							(&room.VRAMTileSet)[:],
-							t%16,
-							t/16,
-						)
-					}
-
-					if err = exportPNG(fmt.Sprintf("data/%03X.vram.png", uint16(room.Supertile)), g); err != nil {
-						panic(err)
-					}
+				if err = exportPNG(fmt.Sprintf("data/%03X.vram.png", uint16(room.Supertile)), g); err != nil {
+					panic(err)
 				}
 			}
 		}

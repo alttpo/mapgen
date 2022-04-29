@@ -11,8 +11,8 @@ import (
 
 type System struct {
 	// emulated system:
-	Bus *bus.Bus
-	CPU *cpu65c816.CPU
+	bus.Bus
+	cpu65c816.CPU
 	HWIO
 
 	ROM  []byte
@@ -30,80 +30,45 @@ func (s *System) CreateEmulatorFrom(initEmu *System) (err error) {
 	s.LoggerCPU = initEmu.LoggerCPU
 
 	s.ROM = initEmu.ROM
-	copy(s.WRAM[:], initEmu.WRAM[:])
-	copy(s.VRAM[:], initEmu.VRAM[:])
-	copy(s.SRAM[:], initEmu.SRAM[:])
+	s.WRAM = initEmu.WRAM
+	s.SRAM = initEmu.SRAM
+	s.VRAM = initEmu.VRAM
 
-	s.PPU = initEmu.PPU
-	s.DMA = initEmu.DMA
-	s.DMARegs = initEmu.DMARegs
 	s.HWIO = initEmu.HWIO
-	s.HWIO.s = s
 
-	if err = s.CreateEmulator(); err != nil {
+	// create primary A bus for SNES:
+	s.Bus.Init(0x40*2 + 0x10*2 + 1 + 0x70 + 0x80 + 0x70*2)
+
+	// copy Bus state:
+	s.Bus.EA = initEmu.Bus.EA
+	s.Bus.Write = initEmu.Bus.Write
+
+	if err = s.InitLoROMBus(); err != nil {
 		return
 	}
 
-	copyCPUState(s.CPU, initEmu.CPU)
+	s.CPU.InitFrom(&initEmu.CPU, &s.Bus)
 
 	return
 }
 
-func copyCPUState(dst *cpu65c816.CPU, src *cpu65c816.CPU) {
-	dst.AllCycles = src.AllCycles
-	dst.Cycles = src.Cycles
-	dst.Stopped = src.Stopped
-
-	dst.PRK = src.PRK
-	dst.PPC = src.PPC
-	dst.WDM = src.WDM
-
-	dst.PC = src.PC
-	dst.SP = src.SP
-
-	dst.RA = src.RA
-	dst.RX = src.RX
-	dst.RY = src.RY
-
-	dst.RAh = src.RAh
-	dst.RAl = src.RAl
-	dst.RXl = src.RXl
-	dst.RYl = src.RYl
-
-	dst.RDBR = src.RDBR
-	dst.RD = src.RD
-	dst.RK = src.RK
-
-	dst.B = src.B
-	dst.E = src.E
-
-	dst.N = src.N
-	dst.V = src.V
-	dst.M = src.M
-	dst.X = src.X
-	dst.D = src.D
-	dst.I = src.I
-	dst.Z = src.Z
-	dst.C = src.C
-	//dst.SetFlags(src.Flags())
-
-	dst.Interrupt = src.Interrupt
-
-	dst.StepInfo = src.StepInfo
-}
-
 func (s *System) CreateEmulator() (err error) {
 	// create primary A bus for SNES:
-	s.Bus, _ = bus.NewWithSizeHint(0x40*2 + 0x10*2 + 1 + 0x70 + 0x80 + 0x70*2)
-	// Create CPU:
-	s.CPU, _ = cpu65c816.New(s.Bus)
+	s.Bus.Init(0x40*2 + 0x10*2 + 1 + 0x70 + 0x80 + 0x70*2)
 
+	// create CPU:
+	s.CPU.Init(&s.Bus)
+
+	return s.InitLoROMBus()
+}
+
+func (s *System) InitLoROMBus() (err error) {
 	// map in ROM to Bus; parts of this mapping will be overwritten:
 	for b := uint32(0); b < 0x40; b++ {
 		halfBank := b << 15
 		bank := b << 16
 		err = s.Bus.Attach(
-			memory.NewRAM(s.ROM[halfBank:halfBank+0x8000], bank|0x8000),
+			memory.NewROM(s.ROM[halfBank:halfBank+0x8000], bank|0x8000),
 			"rom",
 			bank|0x8000,
 			bank|0xFFFF,
@@ -114,7 +79,7 @@ func (s *System) CreateEmulator() (err error) {
 
 		// mirror:
 		err = s.Bus.Attach(
-			memory.NewRAM(s.ROM[halfBank:halfBank+0x8000], (bank+0x80_0000)|0x8000),
+			memory.NewROM(s.ROM[halfBank:halfBank+0x8000], (bank+0x80_0000)|0x8000),
 			"rom",
 			(bank+0x80_0000)|0x8000,
 			(bank+0x80_0000)|0xFFFF,
