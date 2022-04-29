@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"github.com/alttpo/snes/asm"
 	"github.com/alttpo/snes/mapping/lorom"
@@ -12,7 +13,7 @@ import (
 	"unsafe"
 )
 
-const drawOverlays = true
+var drawOverlays = false
 
 var (
 	b02LoadUnderworldSupertilePC     uint32 = 0x02_5200
@@ -33,6 +34,9 @@ var (
 )
 
 func main() {
+	flag.BoolVar(&drawOverlays, "overlay", false, "draw overlay data")
+	flag.Parse()
+
 	var err error
 
 	var f *os.File
