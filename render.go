@@ -248,7 +248,8 @@ func (room *RoomState) DrawSupertile() {
 	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
 	pal := cgramToPalette(cgram)
 
-	palTransp := pal
+	palTransp := make(color.Palette, len(pal))
+	copy(palTransp, pal)
 	palTransp[0] = color.Transparent
 
 	// render BG image:

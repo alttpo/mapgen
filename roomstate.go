@@ -521,16 +521,18 @@ func (room *RoomState) Init() (err error) {
 		write8(room.WRAM[:], 0x0DD0+i, 0)
 	}
 
-	// start GIF with solid black frame:
-	room.GIF.BackgroundIndex = 0
-	room.GIF.Image = append(room.GIF.Image, image.NewPaletted(
-		image.Rect(0, 0, 512, 512),
-		color.Palette{
-			color.Black,
-		},
-	))
-	room.GIF.Delay = append(room.GIF.Delay, 2)
-	room.GIF.Disposal = append(room.GIF.Disposal, gif.DisposalNone)
+	if false {
+		// start GIF with solid black frame:
+		room.GIF.BackgroundIndex = 0
+		room.GIF.Image = append(room.GIF.Image, image.NewPaletted(
+			image.Rect(0, 0, 512, 512),
+			color.Palette{
+				color.Black,
+			},
+		))
+		room.GIF.Delay = append(room.GIF.Delay, 2)
+		room.GIF.Disposal = append(room.GIF.Disposal, gif.DisposalNone)
+	}
 
 	// capture first room state:
 	room.DrawSupertile()
