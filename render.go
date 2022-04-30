@@ -252,7 +252,6 @@ func (room *RoomState) DrawSupertile() {
 	palTransp[0] = color.Transparent
 
 	// render BG image:
-	g := image.NewNRGBA(image.Rect(0, 0, 512, 512))
 
 	bg1p := [2]*image.Paletted{
 		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
@@ -275,6 +274,14 @@ func (room *RoomState) DrawSupertile() {
 		renderBGsep(bg2p, bg2wram, tileset)
 	}
 
+	// saturate a 16-bit value:
+	sat := func(v uint32) uint16 {
+		if v > 0xffff {
+			return 0xffff
+		}
+		return uint16(v)
+	}
+
 	// prefer p1's color unless it's zero:
 	pick := func(c0, c1 uint8) uint8 {
 		if c1 != 0 {
@@ -288,11 +295,11 @@ func (room *RoomState) DrawSupertile() {
 
 	//subdes := read8(wram, 0x1D)
 	n0414 := read8(wram, 0x0414)
-	translucent := n0414 == 0x07
+	addColor := n0414 == 0x07
 	halfColor := n0414 == 0x04
 	flip := n0414 == 0x03
 
-	if flip {
+	if flip || addColor || halfColor {
 		// draw from back to front order:
 		// bg1[1]
 		// bg1[0]
@@ -310,26 +317,81 @@ func (room *RoomState) DrawSupertile() {
 		order = [4]*image.Paletted{bg2p[0], bg2p[1], bg1p[0], bg1p[1]}
 	}
 
+	if room.Rendered != nil {
+		// subsequent GIF frames:
+		frame := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+
+		hc := uint8(128)
+		mixedColors := make(map[uint16]uint8, 0x200)
+		for y := 0; y < 512; y++ {
+			for x := 0; x < 512; x++ {
+				c0 := order[0].ColorIndexAt(x, y)
+				c1 := order[1].ColorIndexAt(x, y)
+				c2 := order[2].ColorIndexAt(x, y)
+				c3 := order[3].ColorIndexAt(x, y)
+
+				m1 := pick(c0, c1)
+				m2 := pick(c2, c3)
+
+				var c uint8
+				if addColor || halfColor {
+					if m2 == 0 {
+						c = m1
+					} else {
+						key := uint16(m1) | uint16(m2)<<8
+
+						var ok bool
+						if c, ok = mixedColors[key]; !ok {
+							c = hc
+							r1, g1, b1, _ := pal[m1].RGBA()
+							r2, g2, b2, _ := pal[m2].RGBA()
+							if halfColor {
+								pal[c] = color.RGBA64{
+									R: sat(r1>>1 + r2>>1),
+									G: sat(g1>>1 + g2>>1),
+									B: sat(b1>>1 + b2>>1),
+									A: 0xffff,
+								}
+							} else {
+								pal[c] = color.RGBA64{
+									R: sat(r1 + r2),
+									G: sat(g1 + g2),
+									B: sat(b1 + b2),
+									A: 0xffff,
+								}
+							}
+							mixedColors[key] = c
+							hc++
+						}
+					}
+				} else {
+					c = pick(m1, m2)
+				}
+
+				frame.SetColorIndex(x, y, c)
+			}
+		}
+		frame.Palette = pal
+
+		room.GIF.Image = append(room.GIF.Image, frame)
+		room.GIF.Delay = append(room.GIF.Delay, 1)
+		room.GIF.Disposal = append(room.GIF.Disposal, gif.DisposalNone)
+
+		return
+	}
+
 	// switch everything but the first layer to have 0 as transparent:
+	order[0].Palette = pal
 	for p := 1; p < 4; p++ {
 		order[p].Palette = palTransp
 	}
 
+	// first GIF frames build up the layers:
 	room.GIF.Image = append(room.GIF.Image, order[:]...)
 	room.GIF.Delay = append(room.GIF.Delay, 1, 1, 1, 1)
 	room.GIF.Disposal = append(room.GIF.Disposal, 0, 0, 0, 0)
 
-	if room.Rendered != nil {
-		return
-	}
-
-	// saturate a 16-bit value:
-	sat := func(v uint32) uint16 {
-		if v > 0xffff {
-			return 0xffff
-		}
-		return uint16(v)
-	}
+	g := image.NewNRGBA(image.Rect(0, 0, 512, 512))
 
 	if halfColor {
 		// color math: add, half
@@ -352,7 +414,7 @@ func (room *RoomState) DrawSupertile() {
 				}
 			}
 		}
-	} else if translucent {
+	} else if addColor {
 		// color math: add
 		for y := 0; y < 512; y++ {
 			for x := 0; x < 512; x++ {
