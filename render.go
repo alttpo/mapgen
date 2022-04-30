@@ -316,7 +316,7 @@ func (room *RoomState) DrawSupertile() {
 	}
 
 	room.GIF.Image = append(room.GIF.Image, order[:]...)
-	room.GIF.Delay = append(room.GIF.Delay, 0, 0, 0, 1)
+	room.GIF.Delay = append(room.GIF.Delay, 1, 1, 1, 1)
 	room.GIF.Disposal = append(room.GIF.Disposal, 0, 0, 0, 0)
 
 	if room.Rendered != nil {

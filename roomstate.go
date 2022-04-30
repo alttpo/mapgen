@@ -529,7 +529,7 @@ func (room *RoomState) Init() (err error) {
 			color.Black,
 		},
 	))
-	room.GIF.Delay = append(room.GIF.Delay, 0)
+	room.GIF.Delay = append(room.GIF.Delay, 1)
 	room.GIF.Disposal = append(room.GIF.Disposal, 0)
 
 	// capture first room state:
