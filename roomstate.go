@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image"
+	"image/gif"
 	"sync"
 )
 
@@ -38,6 +39,7 @@ type RoomState struct {
 	Supertile
 
 	Rendered image.Image
+	gif.GIF
 
 	EntryPoints []EntryPoint
 	ExitPoints  []ExitPoint

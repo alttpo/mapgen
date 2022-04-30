@@ -13,8 +13,6 @@ import (
 	"unsafe"
 )
 
-var drawOverlays = false
-
 var (
 	b02LoadUnderworldSupertilePC     uint32 = 0x02_5200
 	b01LoadAndDrawRoomPC             uint32
@@ -26,15 +24,22 @@ var (
 	donePC                           uint32
 )
 
-var roomsWithPitDamage map[Supertile]bool
+var (
+	roomsWithPitDamage map[Supertile]bool
+	supertiles         map[Supertile]*RoomState
+	supertilesLock     sync.Mutex
+)
 
 var (
-	supertiles     map[Supertile]*RoomState
-	supertilesLock sync.Mutex
+	drawOverlays  = false
+	drawNumbers   bool
+	supertileGifs bool
 )
 
 func main() {
 	flag.BoolVar(&drawOverlays, "overlay", false, "draw overlay data")
+	flag.BoolVar(&drawNumbers, "numbers", true, "draw supertile numbers")
+	flag.BoolVar(&supertileGifs, "gif", false, "render supertile GIFs")
 	flag.Parse()
 
 	var err error
@@ -546,7 +551,14 @@ func processEntrance(
 	// render all supertiles found:
 	for _, room := range g.Rooms {
 		wg.Add(1)
-		go drawSupertile(wg, g, room)
+		go func(r *RoomState) {
+			fmt.Printf("entrance $%02x supertile %s draw start\n", g.EntranceID, r.Supertile)
+
+			r.DrawSupertile()
+
+			fmt.Printf("entrance $%02x supertile %s draw complete\n", g.EntranceID, r.Supertile)
+			wg.Done()
+		}(room)
 
 		// render VRAM BG tiles to a PNG:
 		if false {
