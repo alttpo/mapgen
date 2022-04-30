@@ -529,8 +529,8 @@ func (room *RoomState) Init() (err error) {
 			color.Black,
 		},
 	))
-	room.GIF.Delay = append(room.GIF.Delay, 1)
-	room.GIF.Disposal = append(room.GIF.Disposal, 0)
+	room.GIF.Delay = append(room.GIF.Delay, 2)
+	room.GIF.Disposal = append(room.GIF.Disposal, gif.DisposalNone)
 
 	// capture first room state:
 	room.DrawSupertile()
@@ -539,6 +539,11 @@ func (room *RoomState) Init() (err error) {
 	if f >= 0 {
 		room.GIF.Delay[f] += 200
 	}
+
+	// insert a blank GIF frame:
+	room.GIF.Image = append(room.GIF.Image, image.NewPaletted(image.Rect(0, 0, 512, 512), color.Palette{color.Transparent}))
+	room.GIF.Delay = append(room.GIF.Delay, 50)
+	room.GIF.Disposal = append(room.GIF.Disposal, 0)
 
 	room.HandleRoomTags()
 
@@ -1528,7 +1533,7 @@ func (r *RoomState) HandleRoomTags() bool {
 	copy(e.WRAM[0x12000:0x14000], r.Tiles[:])
 
 	lastCap := [0x4000]byte{}
-	lastDelay := -200
+	lastDelay := 167
 	copy(lastCap[:], e.WRAM[0x2000:0x6000])
 
 	e.CPU.OnWDM = func(wdm byte) {
@@ -1551,12 +1556,15 @@ func (r *RoomState) HandleRoomTags() bool {
 
 			f := len(r.GIF.Delay) - 1
 			if f >= 0 {
-				if lastDelay < 0 {
+				if lastDelay <= 0 {
 					lastDelay = 167
 				}
 				r.GIF.Delay[f] = lastDelay / 100
+				if lastDelay%100 >= 50 {
+					r.GIF.Delay[f]++
+				}
 			}
-			lastDelay = -300
+			lastDelay = 167
 			r.DrawSupertile()
 
 			copy(lastCap[:], e.WRAM[0x2000:0x6000])

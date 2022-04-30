@@ -374,7 +374,7 @@ func (room *RoomState) DrawSupertile() {
 		frame.Palette = pal
 
 		room.GIF.Image = append(room.GIF.Image, frame)
-		room.GIF.Delay = append(room.GIF.Delay, 1)
+		room.GIF.Delay = append(room.GIF.Delay, 50)
 		room.GIF.Disposal = append(room.GIF.Disposal, gif.DisposalNone)
 
 		return
@@ -388,7 +388,7 @@ func (room *RoomState) DrawSupertile() {
 
 	// first GIF frames build up the layers:
 	room.GIF.Image = append(room.GIF.Image, order[:]...)
-	room.GIF.Delay = append(room.GIF.Delay, 1, 1, 1, 1)
+	room.GIF.Delay = append(room.GIF.Delay, 50, 50, 50, 50)
 	room.GIF.Disposal = append(room.GIF.Disposal, 0, 0, 0, 0)
 
 	g := image.NewNRGBA(image.Rect(0, 0, 512, 512))
@@ -440,9 +440,6 @@ func (room *RoomState) DrawSupertile() {
 				c2 := order[2].ColorIndexAt(x, y)
 				c3 := order[3].ColorIndexAt(x, y)
 				c := pick(pick(c0, c1), pick(c2, c3))
-				//bg1c := pick(bg1p[0].ColorIndexAt(x, y), bg1p[1].ColorIndexAt(x, y))
-				//bg2c := pick(bg2p[0].ColorIndexAt(x, y), bg2p[1].ColorIndexAt(x, y))
-				//c := pick(bg2c, bg1c)
 				g.Set(x, y, pal[c])
 			}
 		}
