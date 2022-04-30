@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image"
+	"image/color"
 	"image/gif"
 	"sync"
 )
@@ -518,6 +519,25 @@ func (room *RoomState) Init() (err error) {
 	// clear all enemy health to see if this triggers something:
 	for i := uint32(0); i < 16; i++ {
 		write8(room.WRAM[:], 0x0DD0+i, 0)
+	}
+
+	// start GIF with solid black frame:
+	room.GIF.BackgroundIndex = 0
+	room.GIF.Image = append(room.GIF.Image, image.NewPaletted(
+		image.Rect(0, 0, 512, 512),
+		color.Palette{
+			color.Black,
+		},
+	))
+	room.GIF.Delay = append(room.GIF.Delay, 0)
+	room.GIF.Disposal = append(room.GIF.Disposal, 0)
+
+	// capture first room state:
+	room.DrawSupertile()
+
+	f := len(room.GIF.Delay) - 1
+	if f >= 0 {
+		room.GIF.Delay[f] += 200
 	}
 
 	room.HandleRoomTags()
@@ -1507,9 +1527,47 @@ func (r *RoomState) HandleRoomTags() bool {
 	// prepare emulator for execution within this supertile:
 	copy(e.WRAM[0x12000:0x14000], r.Tiles[:])
 
+	lastCap := [0x4000]byte{}
+	lastDelay := -200
+	copy(lastCap[:], e.WRAM[0x2000:0x6000])
+
+	e.CPU.OnWDM = func(wdm byte) {
+		// capture frame to GIF:
+		if wdm == 0xFF {
+			// compare against last capture:
+			diff := false
+			for i := range lastCap {
+				if lastCap[i] != e.WRAM[0x2000+i] {
+					diff = true
+					break
+				}
+			}
+
+			if !diff {
+				// increase last frame's delay:
+				lastDelay += 167
+				return
+			}
+
+			f := len(r.GIF.Delay) - 1
+			if f >= 0 {
+				if lastDelay < 0 {
+					lastDelay = 167
+				}
+				r.GIF.Delay[f] = lastDelay / 100
+			}
+			lastDelay = -300
+			r.DrawSupertile()
+
+			copy(lastCap[:], e.WRAM[0x2000:0x6000])
+		}
+	}
+
 	if err := e.ExecAt(b00HandleRoomTagsPC, 0); err != nil {
 		panic(err)
 	}
+
+	e.CPU.OnWDM = nil
 
 	// update room state:
 	copy(r.Tiles[:], e.WRAM[0x12000:0x14000])

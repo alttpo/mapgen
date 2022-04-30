@@ -554,7 +554,7 @@ func processEntrance(
 		go func(r *RoomState) {
 			fmt.Printf("entrance $%02x supertile %s draw start\n", g.EntranceID, r.Supertile)
 
-			r.DrawSupertile()
+			r.RenderGIF()
 
 			fmt.Printf("entrance $%02x supertile %s draw complete\n", g.EntranceID, r.Supertile)
 			wg.Done()
@@ -658,7 +658,7 @@ func setupAlttp(e *System) {
 
 			// then JSR Underworld_LoadHeader#_01B564 to reload the doors into $19A0[16]
 			//a.BRA("jslUnderworld_LoadHeader")
-			a.WDM(0xAA)
+			a.STP()
 		}
 
 		// finalize labels
@@ -755,7 +755,7 @@ func setupAlttp(e *System) {
 
 		// WDM triggers an abort for values >= 10
 		donePC = a.Label("done")
-		a.WDM(0xAA)
+		a.STP()
 
 		// finalize labels
 		if err = a.Finalize(); err != nil {
@@ -814,11 +814,15 @@ func setupAlttp(e *System) {
 		a.JSR_abs(0x89E0) // NMI_DoUpdates
 		//a.PLB()
 		//a.PLD()
+
+		a.Comment("capture frame")
+		a.WDM(0xFF)
+
 		a.LDA_dp(0x11)
 		a.BNE("continue_submodule")
 
 		a.STZ_dp(0x11)
-		a.WDM(0xAA)
+		a.STP()
 
 		// finalize labels
 		if err = a.Finalize(); err != nil {

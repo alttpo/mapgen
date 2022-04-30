@@ -9,6 +9,7 @@ import (
 	"golang.org/x/image/math/fixed"
 	"image"
 	"image/color"
+	"image/gif"
 	"image/png"
 	"os"
 	"sync"
@@ -246,9 +247,9 @@ func (room *RoomState) DrawSupertile() {
 
 	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
 	pal := cgramToPalette(cgram)
-	pal0 := pal[0]
-	// force color 0 to be transparency
-	pal[0] = color.Transparent
+
+	palTransp := pal
+	palTransp[0] = color.Transparent
 
 	// render BG image:
 	g := image.NewNRGBA(image.Rect(0, 0, 512, 512))
@@ -274,24 +275,6 @@ func (room *RoomState) DrawSupertile() {
 		renderBGsep(bg2p, bg2wram, tileset)
 	}
 
-	func() {
-		if err := exportPNG(fmt.Sprintf("data/%03X.bg1.0.png", uint16(room.Supertile)), bg1p[0]); err != nil {
-			panic(err)
-		}
-		if err := exportPNG(fmt.Sprintf("data/%03X.bg1.1.png", uint16(room.Supertile)), bg1p[1]); err != nil {
-			panic(err)
-		}
-		if err := exportPNG(fmt.Sprintf("data/%03X.bg2.0.png", uint16(room.Supertile)), bg2p[0]); err != nil {
-			panic(err)
-		}
-		if err := exportPNG(fmt.Sprintf("data/%03X.bg2.1.png", uint16(room.Supertile)), bg2p[1]); err != nil {
-			panic(err)
-		}
-	}()
-
-	// restore color 0:
-	pal[0] = pal0
-
 	// prefer p1's color unless it's zero:
 	pick := func(c0, c1 uint8) uint8 {
 		if c1 != 0 {
@@ -301,104 +284,106 @@ func (room *RoomState) DrawSupertile() {
 		}
 	}
 
+	order := [4]*image.Paletted{bg2p[0], bg1p[0], bg2p[1], bg1p[1]}
+
 	//subdes := read8(wram, 0x1D)
 	n0414 := read8(wram, 0x0414)
 	translucent := n0414 == 0x07
 	halfColor := n0414 == 0x04
 	flip := n0414 == 0x03
-	if translucent || halfColor {
-		// render bg1 and bg2 separately
 
-		// draw from back to front order:
-		// bg2[0]
-		// bg1[0]
-		// bg2[1]
-		// bg1[1]
-
-		// saturate a 16-bit value:
-		sat := func(v uint32) uint16 {
-			if v > 0xffff {
-				return 0xffff
-			}
-			return uint16(v)
-		}
-
-		if halfColor {
-			// color math: add, half
-			for y := 0; y < 512; y++ {
-				for x := 0; x < 512; x++ {
-					bg1c := pick(bg1p[0].ColorIndexAt(x, y), bg1p[1].ColorIndexAt(x, y))
-					bg2c := pick(bg2p[0].ColorIndexAt(x, y), bg2p[1].ColorIndexAt(x, y))
-					if bg2c != 0 {
-						r1, g1, b1, _ := pal[bg1c].RGBA()
-						r2, g2, b2, _ := pal[bg2c].RGBA()
-						c := color.RGBA64{
-							R: sat(r1>>1 + r2>>1),
-							G: sat(g1>>1 + g2>>1),
-							B: sat(b1>>1 + b2>>1),
-							A: 0xffff,
-						}
-						g.Set(x, y, c)
-					} else {
-						g.Set(x, y, pal[bg1c])
-					}
-				}
-			}
-		} else {
-			// color math: add
-			for y := 0; y < 512; y++ {
-				for x := 0; x < 512; x++ {
-					bg1c := pick(bg1p[0].ColorIndexAt(x, y), bg1p[1].ColorIndexAt(x, y))
-					bg2c := pick(bg2p[0].ColorIndexAt(x, y), bg2p[1].ColorIndexAt(x, y))
-					r1, g1, b1, _ := pal[bg1c].RGBA()
-					r2, g2, b2, _ := pal[bg2c].RGBA()
-					c := color.RGBA64{
-						R: sat(r1 + r2),
-						G: sat(g1 + g2),
-						B: sat(b1 + b2),
-						A: 0xffff,
-					}
-					g.Set(x, y, c)
-				}
-			}
-		}
-	} else if flip {
+	if flip {
 		// draw from back to front order:
 		// bg1[1]
 		// bg1[0]
 		// bg2[1]
 		// bg2[0]
-
-		for y := 0; y < 512; y++ {
-			for x := 0; x < 512; x++ {
-				bg1c := pick(bg1p[1].ColorIndexAt(x, y), bg1p[0].ColorIndexAt(x, y))
-				bg2c := pick(bg2p[1].ColorIndexAt(x, y), bg2p[0].ColorIndexAt(x, y))
-				c := pick(bg1c, bg2c)
-				g.Set(x, y, pal[c])
-			}
-		}
-		//draw.Draw(g, g.Bounds(), bg1, image.Point{}, draw.Src)
-
-		room.GIF.Image = append(room.GIF.Image, bg1p[1], bg1p[0], bg2p[1], bg2p[0])
-		room.GIF.Delay = append(room.GIF.Delay, 0, 0, 0, 0)
+		//order = [4]*image.Paletted{bg1p[1], bg1p[0], bg2p[1], bg2p[0]}
+		order = [4]*image.Paletted{bg1p[0], bg1p[1], bg2p[0], bg2p[1]}
 	} else {
 		// draw from back to front order:
 		// bg2[0]
 		// bg1[0]
 		// bg2[1]
 		// bg1[1]
+		//order = [4]*image.Paletted{bg2p[0], bg1p[0], bg2p[1], bg1p[1]}
+		order = [4]*image.Paletted{bg2p[0], bg2p[1], bg1p[0], bg1p[1]}
+	}
 
+	// switch everything but the first layer to have 0 as transparent:
+	for p := 1; p < 4; p++ {
+		order[p].Palette = palTransp
+	}
+
+	room.GIF.Image = append(room.GIF.Image, order[:]...)
+	room.GIF.Delay = append(room.GIF.Delay, 0, 0, 0, 1)
+	room.GIF.Disposal = append(room.GIF.Disposal, 0, 0, 0, 0)
+
+	if room.Rendered != nil {
+		return
+	}
+
+	// saturate a 16-bit value:
+	sat := func(v uint32) uint16 {
+		if v > 0xffff {
+			return 0xffff
+		}
+		return uint16(v)
+	}
+
+	if halfColor {
+		// color math: add, half
 		for y := 0; y < 512; y++ {
 			for x := 0; x < 512; x++ {
 				bg1c := pick(bg1p[0].ColorIndexAt(x, y), bg1p[1].ColorIndexAt(x, y))
 				bg2c := pick(bg2p[0].ColorIndexAt(x, y), bg2p[1].ColorIndexAt(x, y))
-				c := pick(bg2c, bg1c)
+				if bg2c != 0 {
+					r1, g1, b1, _ := pal[bg1c].RGBA()
+					r2, g2, b2, _ := pal[bg2c].RGBA()
+					c := color.RGBA64{
+						R: sat(r1>>1 + r2>>1),
+						G: sat(g1>>1 + g2>>1),
+						B: sat(b1>>1 + b2>>1),
+						A: 0xffff,
+					}
+					g.Set(x, y, c)
+				} else {
+					g.Set(x, y, pal[bg1c])
+				}
+			}
+		}
+	} else if translucent {
+		// color math: add
+		for y := 0; y < 512; y++ {
+			for x := 0; x < 512; x++ {
+				bg1c := pick(bg1p[0].ColorIndexAt(x, y), bg1p[1].ColorIndexAt(x, y))
+				bg2c := pick(bg2p[0].ColorIndexAt(x, y), bg2p[1].ColorIndexAt(x, y))
+				r1, g1, b1, _ := pal[bg1c].RGBA()
+				r2, g2, b2, _ := pal[bg2c].RGBA()
+				c := color.RGBA64{
+					R: sat(r1 + r2),
+					G: sat(g1 + g2),
+					B: sat(b1 + b2),
+					A: 0xffff,
+				}
+				g.Set(x, y, c)
+			}
+		}
+	} else {
+		// no color math:
+		for y := 0; y < 512; y++ {
+			for x := 0; x < 512; x++ {
+				c0 := order[0].ColorIndexAt(x, y)
+				c1 := order[1].ColorIndexAt(x, y)
+				c2 := order[2].ColorIndexAt(x, y)
+				c3 := order[3].ColorIndexAt(x, y)
+				c := pick(pick(c0, c1), pick(c2, c3))
+				//bg1c := pick(bg1p[0].ColorIndexAt(x, y), bg1p[1].ColorIndexAt(x, y))
+				//bg2c := pick(bg2p[0].ColorIndexAt(x, y), bg2p[1].ColorIndexAt(x, y))
+				//c := pick(bg2c, bg1c)
 				g.Set(x, y, pal[c])
 			}
 		}
-
-		room.GIF.Image = append(room.GIF.Image, bg2p[0], bg1p[0], bg2p[1], bg1p[1])
-		room.GIF.Delay = append(room.GIF.Delay, 0, 0, 0, 0)
 	}
 
 	//if isDark {
@@ -425,7 +410,46 @@ func (room *RoomState) DrawSupertile() {
 	// store full underworld rendering for inclusion into EG map:
 	room.Rendered = g
 
-	if err := exportPNG(fmt.Sprintf("data/%03X.png", uint16(room.Supertile)), g); err != nil {
+	func() {
+		if err := exportPNG(fmt.Sprintf("data/%03X.png", uint16(room.Supertile)), g); err != nil {
+			panic(err)
+		}
+
+		if err := exportPNG(fmt.Sprintf("data/%03X.bg1.0.png", uint16(room.Supertile)), bg1p[0]); err != nil {
+			panic(err)
+		}
+		if err := exportPNG(fmt.Sprintf("data/%03X.bg1.1.png", uint16(room.Supertile)), bg1p[1]); err != nil {
+			panic(err)
+		}
+		if err := exportPNG(fmt.Sprintf("data/%03X.bg2.0.png", uint16(room.Supertile)), bg2p[0]); err != nil {
+			panic(err)
+		}
+		if err := exportPNG(fmt.Sprintf("data/%03X.bg2.1.png", uint16(room.Supertile)), bg2p[1]); err != nil {
+			panic(err)
+		}
+	}()
+}
+
+func (room *RoomState) RenderGIF() {
+	// present last frame for 3 seconds:
+	f := len(room.GIF.Delay) - 1
+	if f >= 0 {
+		room.GIF.Delay[f] = 300
+	}
+
+	// render GIF:
+	gw, err := os.OpenFile(
+		fmt.Sprintf("data/%03x.gif", uint16(room.Supertile)),
+		os.O_TRUNC|os.O_CREATE|os.O_WRONLY,
+		0644,
+	)
+	if err != nil {
+		panic(err)
+	}
+	defer gw.Close()
+
+	err = gif.EncodeAll(gw, &room.GIF)
+	if err != nil {
 		panic(err)
 	}
 }

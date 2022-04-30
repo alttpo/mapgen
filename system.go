@@ -232,6 +232,9 @@ func (s *System) GetPC() uint32 {
 }
 
 func (s *System) RunUntil(targetPC uint32, maxCycles uint64) (stopPC uint32, expectedPC uint32, cycles uint64) {
+	// clear stopped flag:
+	s.CPU.Stopped = false
+
 	expectedPC = targetPC
 	for cycles = uint64(0); cycles < maxCycles; {
 		if s.LoggerCPU != nil {
