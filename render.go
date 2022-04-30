@@ -274,23 +274,6 @@ func (room *RoomState) DrawSupertile() {
 		renderBGsep(bg2p, bg2wram, tileset)
 	}
 
-	// saturate a 16-bit value:
-	sat := func(v uint32) uint16 {
-		if v > 0xffff {
-			return 0xffff
-		}
-		return uint16(v)
-	}
-
-	// prefer p1's color unless it's zero:
-	pick := func(c0, c1 uint8) uint8 {
-		if c1 != 0 {
-			return c1
-		} else {
-			return c0
-		}
-	}
-
 	order := [4]*image.Paletted{bg2p[0], bg1p[0], bg2p[1], bg1p[1]}
 
 	//subdes := read8(wram, 0x1D)
@@ -319,59 +302,7 @@ func (room *RoomState) DrawSupertile() {
 
 	if room.Rendered != nil {
 		// subsequent GIF frames:
-		frame := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
-
-		hc := uint8(128)
-		mixedColors := make(map[uint16]uint8, 0x200)
-		for y := 0; y < 512; y++ {
-			for x := 0; x < 512; x++ {
-				c0 := order[0].ColorIndexAt(x, y)
-				c1 := order[1].ColorIndexAt(x, y)
-				c2 := order[2].ColorIndexAt(x, y)
-				c3 := order[3].ColorIndexAt(x, y)
-
-				m1 := pick(c0, c1)
-				m2 := pick(c2, c3)
-
-				var c uint8
-				if addColor || halfColor {
-					if m2 == 0 {
-						c = m1
-					} else {
-						key := uint16(m1) | uint16(m2)<<8
-
-						var ok bool
-						if c, ok = mixedColors[key]; !ok {
-							c = hc
-							r1, g1, b1, _ := pal[m1].RGBA()
-							r2, g2, b2, _ := pal[m2].RGBA()
-							if halfColor {
-								pal[c] = color.RGBA64{
-									R: sat(r1>>1 + r2>>1),
-									G: sat(g1>>1 + g2>>1),
-									B: sat(b1>>1 + b2>>1),
-									A: 0xffff,
-								}
-							} else {
-								pal[c] = color.RGBA64{
-									R: sat(r1 + r2),
-									G: sat(g1 + g2),
-									B: sat(b1 + b2),
-									A: 0xffff,
-								}
-							}
-							mixedColors[key] = c
-							hc++
-						}
-					}
-				} else {
-					c = pick(m1, m2)
-				}
-
-				frame.SetColorIndex(x, y, c)
-			}
-		}
-		frame.Palette = pal
+		frame := renderBGComposedPaletted(pal, order, addColor, halfColor)
 
 		room.GIF.Image = append(room.GIF.Image, frame)
 		room.GIF.Delay = append(room.GIF.Delay, 50)
@@ -386,8 +317,17 @@ func (room *RoomState) DrawSupertile() {
 		order[p].Palette = palTransp
 	}
 
+	blankFrame := newBlankFrame()
+
 	// first GIF frames build up the layers:
-	room.GIF.Image = append(room.GIF.Image, order[:]...)
+	frames := [4]*image.Paletted{
+		renderBGComposedPaletted(pal, [4]*image.Paletted{order[0], blankFrame, blankFrame, blankFrame}, addColor, halfColor),
+		renderBGComposedPaletted(pal, [4]*image.Paletted{order[0], order[1], blankFrame, blankFrame}, addColor, halfColor),
+		renderBGComposedPaletted(pal, [4]*image.Paletted{order[0], order[1], order[2], blankFrame}, addColor, halfColor),
+		renderBGComposedPaletted(pal, [4]*image.Paletted{order[0], order[1], order[2], order[3]}, addColor, halfColor),
+	}
+
+	room.GIF.Image = append(room.GIF.Image, frames[:]...)
 	room.GIF.Delay = append(room.GIF.Delay, 50, 50, 50, 50)
 	room.GIF.Disposal = append(room.GIF.Disposal, 0, 0, 0, 0)
 
@@ -487,6 +427,95 @@ func (room *RoomState) DrawSupertile() {
 			panic(err)
 		}
 	}()
+}
+
+func newBlankFrame() *image.Paletted {
+	return image.NewPaletted(
+		image.Rect(0, 0, 512, 512),
+		color.Palette{color.Transparent},
+	)
+}
+
+// saturate a 16-bit value:
+func sat(v uint32) uint16 {
+	if v > 0xffff {
+		return 0xffff
+	}
+	return uint16(v)
+}
+
+// prefer p1's color unless it's zero:
+func pick(c0, c1 uint8) uint8 {
+	if c1 != 0 {
+		return c1
+	} else {
+		return c0
+	}
+}
+
+func renderBGComposedPaletted(
+	pal color.Palette,
+	order [4]*image.Paletted,
+	addColor bool,
+	halfColor bool,
+) *image.Paletted {
+	frame := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+
+	// store mixed colors in second half of palette which is unused by BG layers:
+	hc := uint8(128)
+	mixedColors := make(map[uint16]uint8, 0x200)
+
+	for y := 0; y < 512; y++ {
+		for x := 0; x < 512; x++ {
+			c0 := order[0].ColorIndexAt(x, y)
+			c1 := order[1].ColorIndexAt(x, y)
+			c2 := order[2].ColorIndexAt(x, y)
+			c3 := order[3].ColorIndexAt(x, y)
+
+			m1 := pick(c0, c1)
+			m2 := pick(c2, c3)
+
+			var c uint8
+			if addColor || halfColor {
+				if m2 == 0 {
+					c = m1
+				} else {
+					key := uint16(m1) | uint16(m2)<<8
+
+					var ok bool
+					if c, ok = mixedColors[key]; !ok {
+						c = hc
+						r1, g1, b1, _ := pal[m1].RGBA()
+						r2, g2, b2, _ := pal[m2].RGBA()
+						if halfColor {
+							pal[c] = color.RGBA64{
+								R: sat(r1>>1 + r2>>1),
+								G: sat(g1>>1 + g2>>1),
+								B: sat(b1>>1 + b2>>1),
+								A: 0xffff,
+							}
+						} else {
+							pal[c] = color.RGBA64{
+								R: sat(r1 + r2),
+								G: sat(g1 + g2),
+								B: sat(b1 + b2),
+								A: 0xffff,
+							}
+						}
+						mixedColors[key] = c
+						hc++
+					}
+				}
+			} else {
+				c = pick(m1, m2)
+			}
+
+			frame.SetColorIndex(x, y, c)
+		}
+	}
+	frame.Palette = pal
+
+	return frame
 }
 
 func (room *RoomState) RenderGIF() {

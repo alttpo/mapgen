@@ -540,11 +540,6 @@ func (room *RoomState) Init() (err error) {
 		room.GIF.Delay[f] += 200
 	}
 
-	// insert a blank GIF frame:
-	room.GIF.Image = append(room.GIF.Image, image.NewPaletted(image.Rect(0, 0, 512, 512), color.Palette{color.Transparent}))
-	room.GIF.Delay = append(room.GIF.Delay, 50)
-	room.GIF.Disposal = append(room.GIF.Disposal, 0)
-
 	room.HandleRoomTags()
 
 	//ioutil.WriteFile(fmt.Sprintf("data/%03X.cmap", uint16(st)), (&room.Tiles)[:], 0644)
@@ -1531,6 +1526,17 @@ func (r *RoomState) HandleRoomTags() bool {
 
 	// prepare emulator for execution within this supertile:
 	copy(e.WRAM[0x12000:0x14000], r.Tiles[:])
+
+	// update last frame's delay:
+	f := len(r.GIF.Delay) - 1
+	if f >= 0 {
+		r.GIF.Delay[f] = 200
+	}
+
+	// insert a blank GIF frame so its delay may be adjusted:
+	r.GIF.Image = append(r.GIF.Image, newBlankFrame())
+	r.GIF.Delay = append(r.GIF.Delay, 50)
+	r.GIF.Disposal = append(r.GIF.Disposal, 0)
 
 	lastCap := [0x4000]byte{}
 	lastDelay := 167
