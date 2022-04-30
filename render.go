@@ -246,6 +246,7 @@ func (room *RoomState) DrawSupertile() {
 
 	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
 	pal := cgramToPalette(cgram)
+	pal0 := pal[0]
 	// force color 0 to be transparency
 	pal[0] = color.Transparent
 
@@ -287,6 +288,9 @@ func (room *RoomState) DrawSupertile() {
 			panic(err)
 		}
 	}()
+
+	// restore color 0:
+	pal[0] = pal0
 
 	// prefer p1's color unless it's zero:
 	pick := func(c0, c1 uint8) uint8 {
