@@ -31,15 +31,17 @@ var (
 )
 
 var (
-	drawOverlays  = false
-	drawNumbers   bool
-	supertileGifs bool
+	drawOverlays       bool
+	drawNumbers        bool
+	supertileGifs      bool
+	animateRoomDrawing bool
 )
 
 func main() {
 	flag.BoolVar(&drawOverlays, "overlay", false, "draw overlay data")
 	flag.BoolVar(&drawNumbers, "numbers", true, "draw supertile numbers")
 	flag.BoolVar(&supertileGifs, "gif", false, "render supertile GIFs")
+	flag.BoolVar(&animateRoomDrawing, "animate", false, "animate room drawing")
 	flag.Parse()
 
 	var err error
@@ -554,7 +556,12 @@ func processEntrance(
 		go func(r *RoomState) {
 			fmt.Printf("entrance $%02x supertile %s draw start\n", g.EntranceID, r.Supertile)
 
-			r.RenderGIF()
+			RenderGIF(&r.GIF, fmt.Sprintf("data/%03x.gif", uint16(r.Supertile)))
+
+			if animateRoomDrawing {
+				r.RenderAnimatedRoomDraw()
+				RenderGIF(&r.Animated, fmt.Sprintf("data/%03x.room.gif", uint16(r.Supertile)))
+			}
 
 			fmt.Printf("entrance $%02x supertile %s draw complete\n", g.EntranceID, r.Supertile)
 			wg.Done()
@@ -829,6 +836,54 @@ func setupAlttp(e *System) {
 			panic(err)
 		}
 		a.WriteTextTo(e.Logger)
+	}
+
+	if animateRoomDrawing {
+		var drawObjectPC uint32
+		var drawObjectDoorPC uint32
+		{
+			a := asm.NewEmitter(e.HWIO.Dyn[0x01_5400&0xFFFF-0x5000:], true)
+			a.SetBase(0x01_5400)
+
+			//#_0188F8: JSR RoomData_DrawObject
+			drawObjectPC = a.Label("drawObject")
+			a.Comment("RoomData_DrawObject#_01893C")
+			a.JSR_abs(0x893C)
+
+			a.WDM(0xFE) // capture frame
+			a.RTS()
+
+			//#_01890D: JSR RoomData_DrawObject_Door
+			drawObjectDoorPC = a.Label("drawDoorObject")
+			a.Comment("RoomData_DrawObject_Door#_018916")
+			a.JSR_abs(0x8916)
+
+			a.WDM(0xFE) // capture frame
+			a.RTS()
+
+			if err = a.Finalize(); err != nil {
+				panic(err)
+			}
+			a.WriteTextTo(os.Stdout)
+		}
+
+		// patch ROM:
+		{
+			//#_0188F8: JSR RoomData_DrawObject
+			addr, _ := lorom.BusAddressToPak(0x01_88F8)
+			a := asm.NewEmitter(e.ROM[addr:], true)
+			a.SetBase(addr)
+
+			a.JSR_abs(uint16(drawObjectPC & 0xFFFF))
+		}
+		{
+			//#_01890D: JSR RoomData_DrawObject_Door
+			addr, _ := lorom.BusAddressToPak(0x01_890D)
+			a := asm.NewEmitter(e.ROM[addr:], true)
+			a.SetBase(addr)
+
+			a.JSR_abs(uint16(drawObjectDoorPC & 0xFFFF))
+		}
 	}
 
 	{

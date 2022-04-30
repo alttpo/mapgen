@@ -42,6 +42,9 @@ type RoomState struct {
 	Rendered image.Image
 	gif.GIF
 
+	Animated        gif.GIF // single room drawing animation
+	AnimatedTileMap [][0x4000]byte
+
 	EntryPoints []EntryPoint
 	ExitPoints  []ExitPoint
 
@@ -117,11 +120,24 @@ func (room *RoomState) Init() (err error) {
 
 	// load and draw current supertile:
 	write16(wram, 0xA0, uint16(st))
+
+	if animateRoomDrawing {
+		e.CPU.OnWDM = func(wdm byte) {
+			if wdm == 0xFE {
+				room.CaptureRoomDrawFrame()
+			}
+		}
+	}
+
 	//e.LoggerCPU = e.Logger
 	if err = e.ExecAt(loadSupertilePC, donePC); err != nil {
 		return
 	}
-	e.LoggerCPU = nil
+	//e.LoggerCPU = nil
+
+	if animateRoomDrawing {
+		e.CPU.OnWDM = nil
+	}
 
 	copy((&room.VRAMTileSet)[:], vram[0x4000:0x8000])
 	copy(tiles, wram[0x12000:0x14000])

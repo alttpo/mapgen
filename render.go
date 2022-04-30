@@ -225,6 +225,72 @@ func renderAll(fname string, entranceGroups []Entrance, rowStart int, rowCount i
 	}
 }
 
+func (room *RoomState) CaptureRoomDrawFrame() {
+	var tileMap [0x4000]byte
+	copy(tileMap[:], room.WRAM[0x2000:0x6000])
+	room.AnimatedTileMap = append(room.AnimatedTileMap, tileMap)
+}
+
+func (room *RoomState) RenderAnimatedRoomDraw() {
+	wram := (&room.WRAM)[:]
+
+	// assume WRAM has rendering state as well:
+	isDark := room.IsDarkRoom()
+
+	// INIDISP contains PPU brightness
+	brightness := read8(wram, 0x13) & 0xF
+	_ = brightness
+
+	//subdes := read8(wram, 0x1D)
+	n0414 := read8(wram, 0x0414)
+	addColor := n0414 == 0x07
+	halfColor := n0414 == 0x04
+	flip := n0414 == 0x03
+
+	//ioutil.WriteFile(fmt.Sprintf("data/%03X.vram", st), vram, 0644)
+
+	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
+	pal := cgramToPalette(cgram)
+
+	bg1p := [2]*image.Paletted{
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+	}
+	bg2p := [2]*image.Paletted{
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+	}
+
+	doBG2 := !isDark
+
+	tileset := (&room.VRAMTileSet)[:]
+
+	for _, tileMap := range room.AnimatedTileMap {
+		bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&tileMap[0])))[:]
+		bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&tileMap[0x2000])))[:]
+
+		// render all separate BG1 and BG2 priority layers:
+		renderBGsep(bg1p, bg1wram, tileset)
+		if doBG2 {
+			renderBGsep(bg2p, bg2wram, tileset)
+		}
+
+		var o [4]*image.Paletted
+
+		if flip || addColor || halfColor {
+			o = [4]*image.Paletted{bg1p[0], bg1p[1], bg2p[0], bg2p[1]}
+		} else {
+			o = [4]*image.Paletted{bg2p[0], bg2p[1], bg1p[0], bg1p[1]}
+		}
+
+		frame := renderBGComposedPaletted(pal, [4]*image.Paletted{o[0], o[1], o[2], o[3]}, addColor, halfColor)
+
+		room.Animated.Image = append(room.Animated.Image, frame)
+		room.Animated.Delay = append(room.Animated.Delay, 3)
+		room.Animated.Disposal = append(room.Animated.Disposal, 0)
+	}
+}
+
 func (room *RoomState) DrawSupertile() {
 	// gfx output is:
 	//  s.VRAM: $4000[0x2000] = 4bpp tile graphics
@@ -275,7 +341,7 @@ func (room *RoomState) DrawSupertile() {
 		renderBGsep(bg2p, bg2wram, tileset)
 	}
 
-	order := [4]*image.Paletted{bg2p[0], bg1p[0], bg2p[1], bg1p[1]}
+	var order [4]*image.Paletted
 
 	//subdes := read8(wram, 0x1D)
 	n0414 := read8(wram, 0x0414)
@@ -519,16 +585,16 @@ func renderBGComposedPaletted(
 	return frame
 }
 
-func (room *RoomState) RenderGIF() {
+func RenderGIF(g *gif.GIF, fname string) {
 	// present last frame for 3 seconds:
-	f := len(room.GIF.Delay) - 1
+	f := len(g.Delay) - 1
 	if f >= 0 {
-		room.GIF.Delay[f] = 300
+		g.Delay[f] = 300
 	}
 
 	// render GIF:
 	gw, err := os.OpenFile(
-		fmt.Sprintf("data/%03x.gif", uint16(room.Supertile)),
+		fname,
 		os.O_TRUNC|os.O_CREATE|os.O_WRONLY,
 		0644,
 	)
@@ -537,7 +603,7 @@ func (room *RoomState) RenderGIF() {
 	}
 	defer gw.Close()
 
-	err = gif.EncodeAll(gw, &room.GIF)
+	err = gif.EncodeAll(gw, g)
 	if err != nil {
 		panic(err)
 	}
