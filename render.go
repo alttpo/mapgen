@@ -665,7 +665,7 @@ func cgramToPalette(cgram []uint16) color.Palette {
 		b := (bgr15 & 0x7C00) >> 10
 		g := (bgr15 & 0x03E0) >> 5
 		r := bgr15 & 0x001F
-		if false {
+		if useGammaRamp {
 			pal[i] = color.NRGBA{
 				R: gammaRamp[r],
 				G: gammaRamp[g],

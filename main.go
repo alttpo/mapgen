@@ -41,6 +41,7 @@ var (
 	drawBGLayerPNGs          bool
 	drawEG1                  bool
 	drawEG2                  bool
+	useGammaRamp             bool
 )
 
 func main() {
@@ -51,6 +52,7 @@ func main() {
 	flag.BoolVar(&drawEG1, "eg1", false, "create eg1.png")
 	flag.BoolVar(&drawEG2, "eg2", false, "create eg2.png")
 	flag.BoolVar(&drawOverlays, "overlay", false, "draw reachable overlays on eg1/eg2")
+	flag.BoolVar(&useGammaRamp, "gamma", false, "use bsnes gamma ramp")
 	flag.BoolVar(&supertileGifs, "gifs", false, "render room GIFs")
 	flag.BoolVar(&animateRoomDrawing, "animate", false, "render animated room drawing GIFs")
 	flag.IntVar(&animateRoomDrawingDelay, "animdelay", 15, "room drawing GIF frame delay")
