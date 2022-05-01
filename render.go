@@ -274,9 +274,9 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 		}
 
 		// render all separate BG1 and BG2 priority layers:
-		renderBGsep(bg1p, bg1wram, tileset)
+		renderBGsep(bg1p, bg1wram, tileset, drawBG1p0, drawBG1p1)
 		if doBG2 {
-			renderBGsep(bg2p, bg2wram, tileset)
+			renderBGsep(bg2p, bg2wram, tileset, drawBG2p0, drawBG2p1)
 		}
 
 		var o [4]*image.Paletted
@@ -346,9 +346,9 @@ func (room *RoomState) DrawSupertile() {
 	tileset := (&room.VRAMTileSet)[:]
 
 	// render all separate BG1 and BG2 priority layers:
-	renderBGsep(bg1p, bg1wram, tileset)
+	renderBGsep(bg1p, bg1wram, tileset, drawBG1p0, drawBG1p1)
 	if doBG2 {
-		renderBGsep(bg2p, bg2wram, tileset)
+		renderBGsep(bg2p, bg2wram, tileset, drawBG2p0, drawBG2p1)
 	}
 
 	var order [4]*image.Paletted
@@ -701,7 +701,7 @@ func renderBG(g *image.Paletted, bg []uint16, tiles []uint8, prio uint8) {
 	}
 }
 
-func renderBGsep(g [2]*image.Paletted, bg []uint16, tiles []uint8) {
+func renderBGsep(g [2]*image.Paletted, bg []uint16, tiles []uint8, p0 bool, p1 bool) {
 	a := uint32(0)
 	for ty := 0; ty < 64; ty++ {
 		for tx := 0; tx < 64; tx++ {
@@ -710,6 +710,12 @@ func renderBGsep(g [2]*image.Paletted, bg []uint16, tiles []uint8) {
 
 			// priority check:
 			p := (z & 0x2000) >> 13
+			if p == 0 && !p0 {
+				continue
+			}
+			if p == 1 && !p1 {
+				continue
+			}
 			draw4bppTile(g[p], z, tiles, tx, ty)
 		}
 	}

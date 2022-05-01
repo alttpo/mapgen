@@ -42,12 +42,20 @@ var (
 	drawEG1                  bool
 	drawEG2                  bool
 	useGammaRamp             bool
+	drawBG1p0                bool
+	drawBG1p1                bool
+	drawBG2p0                bool
+	drawBG2p1                bool
 )
 
 func main() {
 	flag.BoolVar(&outputEntranceSupertiles, "entrancemap", false, "dump entrance-supertile map to stdout")
 	flag.BoolVar(&drawRoomPNGs, "roompngs", false, "create individual room PNGs")
 	flag.BoolVar(&drawBGLayerPNGs, "bgpngs", false, "create individual room BG layer PNGs")
+	flag.BoolVar(&drawBG1p0, "bg1p0", true, "draw BG1 priority 0 tiles")
+	flag.BoolVar(&drawBG1p1, "bg1p1", true, "draw BG1 priority 1 tiles")
+	flag.BoolVar(&drawBG2p0, "bg2p0", true, "draw BG2 priority 0 tiles")
+	flag.BoolVar(&drawBG2p1, "bg2p1", true, "draw BG2 priority 1 tiles")
 	flag.BoolVar(&drawNumbers, "numbers", true, "draw room numbers")
 	flag.BoolVar(&drawEG1, "eg1", false, "create eg1.png")
 	flag.BoolVar(&drawEG2, "eg2", false, "create eg2.png")
