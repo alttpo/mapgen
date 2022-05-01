@@ -122,11 +122,44 @@ func (room *RoomState) Init() (err error) {
 	write16(wram, 0xA0, uint16(st))
 
 	if animateRoomDrawing {
-		e.CPU.OnWDM = func(wdm byte) {
-			if wdm == 0xFE {
+		// clear tile map first:
+		tilemap := e.WRAM[0x2000:0x6000]
+		for i := range tilemap {
+			tilemap[i] = 0x00
+		}
+
+		e.CPU.OnPC = make(map[uint32]func())
+
+		captureStart := false
+		doCapture := func() {
+			if captureStart {
 				room.CaptureRoomDrawFrame()
 			}
 		}
+
+		//#_018834: JSR RoomDraw_DrawAllObjects
+		//#_018837: PLY
+		e.CPU.OnPC[0x01_8837] = func() {
+			// start capturing after basic room layout (template) is drawn:
+			captureStart = true
+			doCapture()
+		}
+
+		//RoomDraw_A_Many32x32Blocks:#_018A44
+		//#_018A88: RTS
+		e.CPU.OnPC[0x01_8A88] = doCapture
+
+		//#_01880F: JSR RoomDraw_DrawFloors
+		//#_018812: LDY.b $BA
+		e.CPU.OnPC[0x01_8812] = doCapture
+
+		//#_0188F8: JSR RoomData_DrawObject
+		//#_0188FB: BRA .next
+		e.CPU.OnPC[0x01_88FB] = doCapture
+
+		//#_01890D: JSR RoomData_DrawObject_Door
+		//#_018910: INC.b $BA
+		e.CPU.OnPC[0x01_8910] = doCapture
 	}
 
 	//e.LoggerCPU = e.Logger
@@ -138,7 +171,8 @@ func (room *RoomState) Init() (err error) {
 	if animateRoomDrawing {
 		// capture final frame:
 		room.CaptureRoomDrawFrame()
-		e.CPU.OnWDM = nil
+
+		e.CPU.OnPC = nil
 	}
 
 	copy((&room.VRAMTileSet)[:], vram[0x4000:0x8000])

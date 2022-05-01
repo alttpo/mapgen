@@ -236,6 +236,7 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 
 	// assume WRAM has rendering state as well:
 	isDark := room.IsDarkRoom()
+	doBG2 := !isDark
 
 	// INIDISP contains PPU brightness
 	brightness := read8(wram, 0x13) & 0xF
@@ -250,8 +251,6 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 	//ioutil.WriteFile(fmt.Sprintf("data/%03X.vram", st), vram, 0644)
 
 	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
-
-	doBG2 := !isDark
 
 	tileset := (&room.VRAMTileSet)[:]
 
@@ -487,11 +486,13 @@ func (room *RoomState) DrawSupertile() {
 	// store full underworld rendering for inclusion into EG map:
 	room.Rendered = g
 
-	func() {
+	if drawRoomPNGs {
 		if err := exportPNG(fmt.Sprintf("data/%03X.png", uint16(room.Supertile)), g); err != nil {
 			panic(err)
 		}
+	}
 
+	if drawBGLayerPNGs {
 		if err := exportPNG(fmt.Sprintf("data/%03X.bg1.0.png", uint16(room.Supertile)), bg1p[0]); err != nil {
 			panic(err)
 		}
@@ -504,7 +505,7 @@ func (room *RoomState) DrawSupertile() {
 		if err := exportPNG(fmt.Sprintf("data/%03X.bg2.1.png", uint16(room.Supertile)), bg2p[1]); err != nil {
 			panic(err)
 		}
-	}()
+	}
 }
 
 func newBlankFrame() *image.Paletted {
