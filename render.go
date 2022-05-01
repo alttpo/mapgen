@@ -253,6 +253,7 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
 
 	tileset := (&room.VRAMTileSet)[:]
+	var lastFrame *image.Paletted = nil
 
 	for _, tileMap := range room.AnimatedTileMap {
 		bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&tileMap[0])))[:]
@@ -295,10 +296,47 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 
 		frame := renderBGComposedPaletted(pal, o, addColor, halfColor)
 
-		room.Animated.Image = append(room.Animated.Image, frame)
+		delta := frame
+		disposal := byte(0)
+		if lastFrame != nil && optimizeGIFs {
+			delta = generateDeltaFrame(lastFrame, frame)
+			disposal = gif.DisposalNone
+		}
+
+		room.Animated.Image = append(room.Animated.Image, delta)
 		room.Animated.Delay = append(room.Animated.Delay, frameDelay)
-		room.Animated.Disposal = append(room.Animated.Disposal, 0)
+		room.Animated.Disposal = append(room.Animated.Disposal, disposal)
+
+		lastFrame = frame
 	}
+}
+
+func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted) {
+	// make a special delta palette with 255 (never used) as transparent:
+	pal := make(color.Palette, len(curr.Palette))
+	copy(pal, curr.Palette)
+
+	transparentIndex := uint8(255)
+	pal[transparentIndex] = color.Transparent
+
+	delta = image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+	for y := 0; y < 512; y++ {
+		for x := 0; x < 512; x++ {
+			cp := prev.ColorIndexAt(x, y)
+			cc := curr.ColorIndexAt(x, y)
+
+			if cp == cc {
+				// set as transparent since nothing changed:
+				delta.SetColorIndex(x, y, transparentIndex)
+				continue
+			}
+
+			// use the current frame's color if it differs:
+			delta.SetColorIndex(x, y, cc)
+		}
+	}
+
+	return
 }
 
 func (room *RoomState) DrawSupertile() {

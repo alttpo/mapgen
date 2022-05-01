@@ -46,9 +46,11 @@ var (
 	drawBG1p1                bool
 	drawBG2p0                bool
 	drawBG2p1                bool
+	optimizeGIFs             bool
 )
 
 func main() {
+	flag.BoolVar(&optimizeGIFs, "optimize", true, "optimize GIFs for size with delta frames")
 	flag.BoolVar(&outputEntranceSupertiles, "entrancemap", false, "dump entrance-supertile map to stdout")
 	flag.BoolVar(&drawRoomPNGs, "roompngs", false, "create individual room PNGs")
 	flag.BoolVar(&drawBGLayerPNGs, "bgpngs", false, "create individual room BG layer PNGs")
