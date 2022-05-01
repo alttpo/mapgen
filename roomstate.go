@@ -39,11 +39,16 @@ type RoomState struct {
 
 	Supertile
 
+	IsLoaded bool
+
 	Rendered image.Image
 	gif.GIF
 
 	Animated        gif.GIF // single room drawing animation
 	AnimatedTileMap [][0x4000]byte
+	AnimatedLayers  []int
+
+	AnimatedLayer int
 
 	EntryPoints []EntryPoint
 	ExitPoints  []ExitPoint
@@ -76,7 +81,6 @@ type RoomState struct {
 	markedFloor bool
 	lifoSpace   [0x2000]ScanState
 	lifo        []ScanState
-	IsLoaded    bool
 }
 
 func CreateRoom(st Supertile, initEmu *System) (room *RoomState) {
@@ -128,20 +132,34 @@ func (room *RoomState) Init() (err error) {
 			tilemap[i] = 0x00
 		}
 
-		e.CPU.OnPC = make(map[uint32]func())
-
 		captureStart := false
+		room.AnimatedLayer = 0
+
 		doCapture := func() {
 			if captureStart {
 				room.CaptureRoomDrawFrame()
 			}
 		}
 
+		e.CPU.OnPC = make(map[uint32]func())
+
 		//#_018834: JSR RoomDraw_DrawAllObjects
 		//#_018837: PLY
 		e.CPU.OnPC[0x01_8837] = func() {
 			// start capturing after basic room layout (template) is drawn:
 			captureStart = true
+			room.AnimatedLayer++
+			doCapture()
+		}
+
+		// draw layer 2:
+		e.CPU.OnPC[0x01_885F] = func() {
+			room.AnimatedLayer++
+			doCapture()
+		}
+		// draw layer 3 (aka doors):
+		e.CPU.OnPC[0x01_8874] = func() {
+			room.AnimatedLayer++
 			doCapture()
 		}
 

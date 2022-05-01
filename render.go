@@ -229,6 +229,7 @@ func (room *RoomState) CaptureRoomDrawFrame() {
 	var tileMap [0x4000]byte
 	copy(tileMap[:], room.WRAM[0x2000:0x6000])
 	room.AnimatedTileMap = append(room.AnimatedTileMap, tileMap)
+	room.AnimatedLayers = append(room.AnimatedLayers, room.AnimatedLayer)
 }
 
 func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
@@ -255,7 +256,7 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 	tileset := (&room.VRAMTileSet)[:]
 	var lastFrame *image.Paletted = nil
 
-	for _, tileMap := range room.AnimatedTileMap {
+	for i, tileMap := range room.AnimatedTileMap {
 		bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&tileMap[0])))[:]
 		bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&tileMap[0x2000])))[:]
 
@@ -275,7 +276,10 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 		}
 
 		// render all separate BG1 and BG2 priority layers:
-		renderBGsep(bg1p, bg1wram, tileset, drawBG1p0, drawBG1p1)
+		layer := room.AnimatedLayers[i]
+		if layer != 2 {
+			renderBGsep(bg1p, bg1wram, tileset, drawBG1p0, drawBG1p1)
+		}
 		if doBG2 {
 			renderBGsep(bg2p, bg2wram, tileset, drawBG2p0, drawBG2p1)
 		}
