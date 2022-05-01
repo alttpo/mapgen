@@ -155,12 +155,12 @@ func (room *RoomState) Init() (err error) {
 		// draw layer 2:
 		e.CPU.OnPC[0x01_885F] = func() {
 			room.AnimatedLayer++
-			doCapture()
+			//doCapture()
 		}
 		// draw layer 3 (aka doors):
 		e.CPU.OnPC[0x01_8874] = func() {
 			room.AnimatedLayer++
-			doCapture()
+			//doCapture()
 		}
 
 		//RoomDraw_A_Many32x32Blocks:#_018A44
