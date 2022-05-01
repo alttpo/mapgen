@@ -136,6 +136,8 @@ func (room *RoomState) Init() (err error) {
 	//e.LoggerCPU = nil
 
 	if animateRoomDrawing {
+		// capture final frame:
+		room.CaptureRoomDrawFrame()
 		e.CPU.OnWDM = nil
 	}
 
@@ -552,6 +554,8 @@ func (room *RoomState) Init() (err error) {
 
 	// capture first room state:
 	room.DrawSupertile()
+
+	room.RenderAnimatedRoomDraw(animateRoomDrawingDelay)
 
 	f := len(room.GIF.Delay) - 1
 	if f >= 0 {

@@ -231,7 +231,7 @@ func (room *RoomState) CaptureRoomDrawFrame() {
 	room.AnimatedTileMap = append(room.AnimatedTileMap, tileMap)
 }
 
-func (room *RoomState) RenderAnimatedRoomDraw() {
+func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 	wram := (&room.WRAM)[:]
 
 	// assume WRAM has rendering state as well:
@@ -250,16 +250,6 @@ func (room *RoomState) RenderAnimatedRoomDraw() {
 	//ioutil.WriteFile(fmt.Sprintf("data/%03X.vram", st), vram, 0644)
 
 	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
-	pal := cgramToPalette(cgram)
-
-	bg1p := [2]*image.Paletted{
-		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
-		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
-	}
-	bg2p := [2]*image.Paletted{
-		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
-		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
-	}
 
 	doBG2 := !isDark
 
@@ -268,6 +258,21 @@ func (room *RoomState) RenderAnimatedRoomDraw() {
 	for _, tileMap := range room.AnimatedTileMap {
 		bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&tileMap[0])))[:]
 		bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&tileMap[0x2000])))[:]
+
+		pal := cgramToPalette(cgram)
+
+		palTransp := make(color.Palette, len(pal))
+		copy(palTransp, pal)
+		palTransp[0] = color.Transparent
+
+		bg1p := [2]*image.Paletted{
+			image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+			image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+		}
+		bg2p := [2]*image.Paletted{
+			image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+			image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+		}
 
 		// render all separate BG1 and BG2 priority layers:
 		renderBGsep(bg1p, bg1wram, tileset)
@@ -283,10 +288,16 @@ func (room *RoomState) RenderAnimatedRoomDraw() {
 			o = [4]*image.Paletted{bg2p[0], bg2p[1], bg1p[0], bg1p[1]}
 		}
 
-		frame := renderBGComposedPaletted(pal, [4]*image.Paletted{o[0], o[1], o[2], o[3]}, addColor, halfColor)
+		// switch everything but the first layer to have 0 as transparent:
+		o[0].Palette = pal
+		for p := 1; p < 4; p++ {
+			o[p].Palette = palTransp
+		}
+
+		frame := renderBGComposedPaletted(pal, o, addColor, halfColor)
 
 		room.Animated.Image = append(room.Animated.Image, frame)
-		room.Animated.Delay = append(room.Animated.Delay, 3)
+		room.Animated.Delay = append(room.Animated.Delay, frameDelay)
 		room.Animated.Disposal = append(room.Animated.Disposal, 0)
 	}
 }

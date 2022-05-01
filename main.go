@@ -31,10 +31,11 @@ var (
 )
 
 var (
-	drawOverlays       bool
-	drawNumbers        bool
-	supertileGifs      bool
-	animateRoomDrawing bool
+	drawOverlays            bool
+	drawNumbers             bool
+	supertileGifs           bool
+	animateRoomDrawing      bool
+	animateRoomDrawingDelay int
 )
 
 func main() {
@@ -42,6 +43,7 @@ func main() {
 	flag.BoolVar(&drawNumbers, "numbers", true, "draw supertile numbers")
 	flag.BoolVar(&supertileGifs, "gif", false, "render supertile GIFs")
 	flag.BoolVar(&animateRoomDrawing, "animate", false, "animate room drawing")
+	flag.IntVar(&animateRoomDrawingDelay, "animdelay", 3, "room drawing frame delay")
 	flag.Parse()
 
 	var err error
@@ -559,7 +561,6 @@ func processEntrance(
 			RenderGIF(&r.GIF, fmt.Sprintf("data/%03x.gif", uint16(r.Supertile)))
 
 			if animateRoomDrawing {
-				r.RenderAnimatedRoomDraw()
 				RenderGIF(&r.Animated, fmt.Sprintf("data/%03x.room.gif", uint16(r.Supertile)))
 			}
 
