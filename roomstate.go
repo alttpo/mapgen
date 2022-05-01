@@ -172,6 +172,13 @@ func (room *RoomState) Init() (err error) {
 		// capture final frame:
 		room.CaptureRoomDrawFrame()
 
+		// copy final frame to first frame so it works as a preview image:
+		frames := make([][0x4000]byte, 0, len(room.AnimatedTileMap)+1)
+		frames = append(frames, room.AnimatedTileMap[len(room.AnimatedTileMap)-1])
+		frames = append(frames, room.AnimatedTileMap[1:]...)
+
+		room.AnimatedTileMap = frames
+
 		e.CPU.OnPC = nil
 	}
 
