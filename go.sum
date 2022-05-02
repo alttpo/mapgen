@@ -1,5 +1,5 @@
-github.com/alttpo/snes v0.0.0-20220501024222-9cac03016889 h1:rDugMtGglQg6r5kn4WqREjU+ZsIX4P1seoLKpddprJE=
-github.com/alttpo/snes v0.0.0-20220501024222-9cac03016889/go.mod h1:hqcMbI1PDqZfNOwDdcGcsJPS5ca1nRhBIj9wwkMrS1c=
+github.com/alttpo/snes v0.0.0-20220502000153-7285cd88ae04 h1:PC5EEDttMD9sj3GRV00cAROdanfoClyFsKL8pK/TkzI=
+github.com/alttpo/snes v0.0.0-20220502000153-7285cd88ae04/go.mod h1:hqcMbI1PDqZfNOwDdcGcsJPS5ca1nRhBIj9wwkMrS1c=
 golang.org/x/image v0.0.0-20220413100746-70e8d0d3baa9 h1:LRtI4W37N+KFebI/qV0OFiLUv4GLOWeEW5hn/KEJvxE=
 golang.org/x/image v0.0.0-20220413100746-70e8d0d3baa9/go.mod h1:023OzeP/+EPmXeapQh35lcL3II3LrY8Ic+EFFKVhULM=
 golang.org/x/text v0.3.6/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=

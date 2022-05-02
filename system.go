@@ -3,9 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/alttpo/snes/emulator/bus"
-	"github.com/alttpo/snes/emulator/cpu65c816"
-	"github.com/alttpo/snes/emulator/memory"
+	"github.com/alttpo/snes/emulator/cpualt"
 	"io"
 )
 
@@ -15,8 +13,7 @@ type VRAMArray = [0x10000]byte
 
 type System struct {
 	// emulated system:
-	bus.Bus
-	cpu65c816.CPU
+	cpualt.CPU
 	HWIO
 
 	ROM  []byte
@@ -57,18 +54,11 @@ func (s *System) InitEmulatorFrom(initEmu *System) (err error) {
 
 	s.HWIO = initEmu.HWIO
 
-	// create primary A bus for SNES:
-	s.Bus.Init(0x40*2 + 0x10*2 + 1 + 0x70 + 0x80 + 0x70*2)
-
-	// copy Bus state:
-	s.Bus.EA = initEmu.Bus.EA
-	s.Bus.Write = initEmu.Bus.Write
+	s.CPU.InitFrom(&initEmu.CPU)
 
 	if err = s.InitLoROMBus(); err != nil {
 		return
 	}
-
-	s.CPU.InitFrom(&initEmu.CPU, &s.Bus)
 
 	return
 }
@@ -76,11 +66,8 @@ func (s *System) InitEmulatorFrom(initEmu *System) (err error) {
 func (s *System) InitEmulator() (err error) {
 	s.InitMemory()
 
-	// create primary A bus for SNES:
-	s.Bus.Init(0x40*2 + 0x10*2 + 1 + 0x70 + 0x80 + 0x70*2)
-
-	// create CPU:
-	s.CPU.Init(&s.Bus)
+	// create CPU and Bus:
+	s.CPU.Init()
 
 	return s.InitLoROMBus()
 }
@@ -90,90 +77,85 @@ func (s *System) InitLoROMBus() (err error) {
 	for b := uint32(0); b < 0x40; b++ {
 		halfBank := b << 15
 		bank := b << 16
-		err = s.Bus.Attach(
-			memory.NewROM(s.ROM[halfBank:halfBank+0x8000], bank|0x8000),
-			"rom",
+		s.Bus.AttachReader(
 			bank|0x8000,
 			bank|0xFFFF,
+			func(addr uint32) uint8 { return s.ROM[halfBank+(addr-(bank|0x8000))] },
 		)
-		if err != nil {
-			return
-		}
 
 		// mirror:
-		err = s.Bus.Attach(
-			memory.NewROM(s.ROM[halfBank:halfBank+0x8000], (bank+0x80_0000)|0x8000),
-			"rom",
+		s.Bus.AttachReader(
 			(bank+0x80_0000)|0x8000,
 			(bank+0x80_0000)|0xFFFF,
+			func(addr uint32) uint8 { return s.ROM[halfBank+(addr-((bank+0x80_0000)|0x8000))] },
 		)
-		if err != nil {
-			return
-		}
 	}
 
 	// SRAM (banks 70-7D,F0-FF) (7E,7F) will be overwritten with WRAM:
 	for b := uint32(0); b < uint32(len(s.SRAM)>>15); b++ {
 		bank := b << 16
 		halfBank := b << 15
-		err = s.Bus.Attach(
-			memory.NewRAM(s.SRAM[halfBank:halfBank+0x8000], bank+0x70_0000),
-			"sram",
+		s.Bus.AttachReader(
 			bank+0x70_0000,
 			bank+0x70_7FFF,
+			func(addr uint32) uint8 { return s.SRAM[halfBank+(addr-(bank+0x70_0000))] },
 		)
-		if err != nil {
-			return
-		}
-
-		// mirror:
-		err = s.Bus.Attach(
-			memory.NewRAM(s.SRAM[halfBank:halfBank+0x8000], bank+0xF0_0000),
-			"sram",
+		s.Bus.AttachReader(
 			bank+0xF0_0000,
 			bank+0xF0_7FFF,
+			func(addr uint32) uint8 { return s.SRAM[halfBank+(addr-(bank+0xF0_0000))] },
 		)
-		if err != nil {
-			return
-		}
+		s.Bus.AttachWriter(
+			bank+0x70_0000,
+			bank+0x70_7FFF,
+			func(addr uint32, val uint8) { s.SRAM[halfBank+(addr-(bank+0x70_0000))] = val },
+		)
+		s.Bus.AttachWriter(
+			bank+0xF0_0000,
+			bank+0xF0_7FFF,
+			func(addr uint32, val uint8) { s.SRAM[halfBank+(addr-(bank+0xF0_0000))] = val },
+		)
 	}
 
 	// WRAM:
 	{
-		err = s.Bus.Attach(
-			memory.NewRAM(s.WRAM[0:0x20000], 0x7E0000),
-			"wram",
+		s.Bus.AttachReader(
 			0x7E_0000,
 			0x7F_FFFF,
+			func(addr uint32) uint8 { return s.WRAM[addr-0x7E_0000] },
 		)
-		if err != nil {
-			return
-		}
+		s.Bus.AttachWriter(
+			0x7E_0000,
+			0x7F_FFFF,
+			func(addr uint32, val uint8) { s.WRAM[addr-0x7E_0000] = val },
+		)
 
 		// map in first $2000 of each bank as a mirror of WRAM:
 		for b := uint32(0); b < 0x70; b++ {
 			bank := b << 16
-			err = s.Bus.Attach(
-				memory.NewRAM(s.WRAM[0:0x2000], bank),
-				"wram",
+			s.Bus.AttachReader(
 				bank,
 				bank|0x1FFF,
+				func(addr uint32) uint8 { return s.WRAM[addr-bank] },
 			)
-			if err != nil {
-				return
-			}
+			s.Bus.AttachWriter(
+				bank,
+				bank|0x1FFF,
+				func(addr uint32, val uint8) { s.WRAM[addr-bank] = val },
+			)
 		}
-		for b := uint32(0x80); b < 0x100; b++ {
+		for b := uint32(0x80); b < 0xF0; b++ {
 			bank := b << 16
-			err = s.Bus.Attach(
-				memory.NewRAM(s.WRAM[0:0x2000], bank),
-				"wram",
+			s.Bus.AttachReader(
 				bank,
 				bank|0x1FFF,
+				func(addr uint32) uint8 { return s.WRAM[addr-bank] },
 			)
-			if err != nil {
-				return
-			}
+			s.Bus.AttachWriter(
+				bank,
+				bank|0x1FFF,
+				func(addr uint32, val uint8) { s.WRAM[addr-bank] = val },
+			)
 		}
 	}
 
@@ -182,26 +164,28 @@ func (s *System) InitLoROMBus() (err error) {
 		s.HWIO.s = s
 		for b := uint32(0); b < 0x70; b++ {
 			bank := b << 16
-			err = s.Bus.Attach(
-				&s.HWIO,
-				"hwio",
+			s.Bus.AttachReader(
 				bank|0x2000,
 				bank|0x7FFF,
+				s.HWIO.Read,
 			)
-			if err != nil {
-				return
-			}
+			s.Bus.AttachWriter(
+				bank|0x2000,
+				bank|0x7FFF,
+				s.HWIO.Write,
+			)
 
 			bank = (b + 0x80) << 16
-			err = s.Bus.Attach(
-				&s.HWIO,
-				"hwio",
+			s.Bus.AttachReader(
 				bank|0x2000,
 				bank|0x7FFF,
+				s.HWIO.Read,
 			)
-			if err != nil {
-				return
-			}
+			s.Bus.AttachWriter(
+				bank|0x2000,
+				bank|0x7FFF,
+				s.HWIO.Write,
+			)
 		}
 	}
 
