@@ -56,9 +56,9 @@ func (s *System) InitEmulatorFrom(initEmu *System) (err error) {
 
 	s.CPU.InitFrom(&initEmu.CPU)
 
-	if err = s.InitLoROMBus(); err != nil {
-		return
-	}
+	s.InitLoROMBus()
+
+	s.InitWRAMBus()
 
 	return
 }
@@ -69,10 +69,14 @@ func (s *System) InitEmulator() (err error) {
 	// create CPU and Bus:
 	s.CPU.Init()
 
-	return s.InitLoROMBus()
+	s.InitLoROMBus()
+
+	s.InitWRAMBus()
+
+	return
 }
 
-func (s *System) InitLoROMBus() (err error) {
+func (s *System) InitLoROMBus() {
 	// map in ROM to Bus; parts of this mapping will be overwritten:
 	for b := uint32(0); b < 0x40; b++ {
 		halfBank := b << 15
@@ -116,7 +120,9 @@ func (s *System) InitLoROMBus() (err error) {
 			func(addr uint32, val uint8) { s.SRAM[halfBank+(addr-(bank+0xF0_0000))] = val },
 		)
 	}
+}
 
+func (s *System) InitWRAMBus() {
 	// WRAM:
 	{
 		s.Bus.AttachReader(
@@ -130,8 +136,8 @@ func (s *System) InitLoROMBus() (err error) {
 			func(addr uint32, val uint8) { s.WRAM[addr-0x7E_0000] = val },
 		)
 
-		// map in first $2000 of each bank as a mirror of WRAM:
-		for b := uint32(0); b < 0x70; b++ {
+		// map in first $2000 of each bank 00-3f and 80-bf as a mirror of WRAM:
+		for b := uint32(0); b < 0x40; b++ {
 			bank := b << 16
 			s.Bus.AttachReader(
 				bank,
@@ -144,7 +150,7 @@ func (s *System) InitLoROMBus() (err error) {
 				func(addr uint32, val uint8) { s.WRAM[addr-bank] = val },
 			)
 		}
-		for b := uint32(0x80); b < 0xF0; b++ {
+		for b := uint32(0x80); b < 0xC0; b++ {
 			bank := b << 16
 			s.Bus.AttachReader(
 				bank,
@@ -162,7 +168,7 @@ func (s *System) InitLoROMBus() (err error) {
 	// Memory-mapped IO registers:
 	{
 		s.HWIO.s = s
-		for b := uint32(0); b < 0x70; b++ {
+		for b := uint32(0); b < 0x40; b++ {
 			bank := b << 16
 			s.Bus.AttachReader(
 				bank|0x2000,
