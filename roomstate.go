@@ -615,26 +615,21 @@ func (room *RoomState) Init() (err error) {
 	// dump enemy state:
 	fmt.Println(hex.Dump(wram[0x0D00:0x0FA0]))
 
-	// pluck out enemy x,y coords:
-	for i := uint32(0); i < 16; i++ {
-		et := read8(wram, 0x0E20+i)
-		yl, yh := read8(wram, 0x0D00+i), read8(wram, 0x0D20+i)
-		xl, xh := read8(wram, 0x0D10+i), read8(wram, 0x0D30+i)
-		y := uint16(yl) | uint16(yh)<<8
-		x := uint16(xl) | uint16(xh)<<8
-		coord := AbsToMapCoord(x, y, 0)
-		_, row, col := coord.RowCol()
-		fmt.Printf(
-			"%02x @ abs(%04x, %04x) -> map(%04x, %04x)\n",
-			et,
-			x,
-			y,
-			col,
-			row,
-		)
+	// capture first room state:
+	room.DrawSupertile()
+
+	// run for a few frames to see what happens:
+	for i := 0; i < 2; i++ {
+		//e.LoggerCPU = os.Stdout
+		if err := e.ExecAtUntil(b00RunSingleFramePC, 0, 0x10000); err != nil {
+			panic(err)
+		}
+		//e.LoggerCPU = nil
 	}
 
-	// capture first room state:
+	// dump enemy state again:
+	fmt.Println(hex.Dump(wram[0x0D00:0x0FA0]))
+
 	room.DrawSupertile()
 
 	//room.RenderAnimatedRoomDraw(animateRoomDrawingDelay)
@@ -649,6 +644,20 @@ func (room *RoomState) Init() (err error) {
 	//ioutil.WriteFile(fmt.Sprintf("data/%03X.cmap", uint16(st)), (&room.Tiles)[:], 0644)
 
 	room.IsLoaded = true
+
+	return
+}
+
+func (s *System) ExecAtUntil(startPC, donePC uint32, maxCycles uint64) (err error) {
+	var stopPC uint32
+	var expectedPC uint32
+	var cycles uint64
+
+	s.SetPC(startPC)
+	if stopPC, expectedPC, cycles = s.RunUntil(donePC, maxCycles); stopPC != expectedPC {
+		err = fmt.Errorf("CPU ran too long and did not reach PC=%#06x; actual=%#06x; took %d cycles", expectedPC, stopPC, cycles)
+		return
+	}
 
 	return
 }

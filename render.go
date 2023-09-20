@@ -419,16 +419,16 @@ func (room *RoomState) DrawSupertile() {
 		order = [4]*image.Paletted{bg2p[0], bg2p[1], bg1p[0], bg1p[1]}
 	}
 
-	if room.Rendered != nil {
-		// subsequent GIF frames:
-		frame := renderBGComposedPaletted(pal, order, addColor, halfColor)
-
-		room.GIF.Image = append(room.GIF.Image, frame)
-		room.GIF.Delay = append(room.GIF.Delay, 50)
-		room.GIF.Disposal = append(room.GIF.Disposal, gif.DisposalNone)
-
-		return
-	}
+	//if room.Rendered != nil {
+	//	// subsequent GIF frames:
+	//	frame := renderBGComposedPaletted(pal, order, addColor, halfColor)
+	//
+	//	room.GIF.Image = append(room.GIF.Image, frame)
+	//	room.GIF.Delay = append(room.GIF.Delay, 50)
+	//	room.GIF.Disposal = append(room.GIF.Disposal, gif.DisposalNone)
+	//
+	//	return
+	//}
 
 	// switch everything but the first layer to have 0 as transparent:
 	order[0].Palette = pal
@@ -502,6 +502,51 @@ func (room *RoomState) DrawSupertile() {
 				g.Set(x, y, pal[c])
 			}
 		}
+	}
+
+	//black := image.NewUniform(color.RGBA{0, 0, 0, 255})
+	yellow := image.NewUniform(color.RGBA{255, 255, 0, 255})
+
+	// draw sprites:
+	for i := uint32(0); i < 16; i++ {
+		st := read8(wram, 0x0DD0+i)
+		if st == 0 {
+			continue
+		}
+
+		et := read8(wram, 0x0E20+i)
+
+		yl, yh := read8(wram, 0x0D00+i), read8(wram, 0x0D20+i)
+		xl, xh := read8(wram, 0x0D10+i), read8(wram, 0x0D30+i)
+		y := uint16(yl) | uint16(yh)<<8
+		x := uint16(xl) | uint16(xh)<<8
+
+		var lx, ly int
+		if true {
+			lx = int(x) & 0x1FF
+			ly = int(y) & 0x1FF
+		} else {
+			coord := AbsToMapCoord(x, y, 0)
+			_, row, col := coord.RowCol()
+			lx = int(col << 3)
+			ly = int(row << 3)
+		}
+
+		//fmt.Printf(
+		//	"%02x @ abs(%04x, %04x) -> map(%04x, %04x)\n",
+		//	et,
+		//	x,
+		//	y,
+		//	col,
+		//	row,
+		//)
+
+		(&font.Drawer{
+			Dst:  g,
+			Src:  yellow,
+			Face: inconsolata.Bold8x16,
+			Dot:  fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)},
+		}).DrawString(fmt.Sprintf("%02x", et))
 	}
 
 	//if isDark {

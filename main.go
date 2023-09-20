@@ -18,6 +18,7 @@ var (
 	b01LoadAndDrawRoomPC             uint32
 	b01LoadAndDrawRoomSetSupertilePC uint32
 	b00HandleRoomTagsPC              uint32 = 0x00_5300
+	b00RunSingleFramePC              uint32 = 0x80_5400
 	loadEntrancePC                   uint32
 	setEntranceIDPC                  uint32
 	loadSupertilePC                  uint32
@@ -945,6 +946,15 @@ func setupAlttp(e *System) {
 		a.Comment("NMI_DoUpdates")
 		a.JSR_abs(0x89E0) // NMI_DoUpdates
 
+		a.Comment("check module=7, submodule!=f:")
+		a.LDA_dp(0x10)
+		a.CMP_imm8_b(0x07)
+		a.BNE("done")
+		a.LDA_dp(0x11)
+		a.BEQ("done")
+		a.Comment("clear submodule to avoid spotlight:")
+		a.STZ_dp(0x11)
+
 		// WDM triggers an abort for values >= 10
 		donePC = a.Label("done")
 		a.STP()
@@ -1024,6 +1034,45 @@ func setupAlttp(e *System) {
 	}
 
 	{
+		// emit into our custom $00:5300 routine:
+		a = asm.NewEmitter(e.HWIO.Dyn[b00RunSingleFramePC&0xFFFF-0x5000:], true)
+		a.SetBase(b00RunSingleFramePC)
+
+		a.SEP(0x30)
+
+		//a.Label("continue_submodule")
+		a.Comment("JSL Module_MainRouting")
+		a.JSL(0x80_80B5)
+
+		a.Label("no_submodule")
+		// this code sets up the DMA transfer parameters for animated BG tiles:
+		a.Comment("NMI_PrepareSprites")
+		a.JSR_abs(0x85FC)
+
+		// fake NMI:
+		//a.REP(0x30)
+		//a.PHD()
+		//a.PHB()
+		//a.LDA_imm16_w(0)
+		//a.TCD()
+		//a.PHK()
+		//a.PLB()
+		//a.SEP(0x30)
+		a.Comment("NMI_DoUpdates")
+		a.JSR_abs(0x89E0) // NMI_DoUpdates
+		//a.PLB()
+		//a.PLD()
+
+		a.STP()
+
+		// finalize labels
+		if err = a.Finalize(); err != nil {
+			panic(err)
+		}
+		a.WriteTextTo(e.Logger)
+	}
+
+	{
 		// skip over music & sfx loading since we did not implement APU registers:
 		a = newEmitterAt(e, 0x02_8293, true)
 		//#_028293: JSR Underworld_LoadSongBankIfNeeded
@@ -1047,9 +1096,12 @@ func setupAlttp(e *System) {
 	_ = loadSupertilePC
 
 	// run the initialization code:
+	//e.LoggerCPU = os.Stdout
 	if err = e.ExecAt(0x00_5000, donePC); err != nil {
 		panic(err)
 	}
+	//e.LoggerCPU = nil
+	//os.Exit(0)
 
 	return
 }
