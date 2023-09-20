@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"image"
 	"image/color"
@@ -594,9 +595,9 @@ func (room *RoomState) Init() (err error) {
 	}
 
 	// clear all enemy health to see if this triggers something:
-	for i := uint32(0); i < 16; i++ {
-		write8(room.WRAM[:], 0x0DD0+i, 0)
-	}
+	//for i := uint32(0); i < 16; i++ {
+	//	write8(room.WRAM[:], 0x0DD0+i, 0)
+	//}
 
 	if false {
 		// start GIF with solid black frame:
@@ -611,17 +612,39 @@ func (room *RoomState) Init() (err error) {
 		room.GIF.Disposal = append(room.GIF.Disposal, gif.DisposalNone)
 	}
 
+	// dump enemy state:
+	fmt.Println(hex.Dump(wram[0x0D00:0x0FA0]))
+
+	// pluck out enemy x,y coords:
+	for i := uint32(0); i < 16; i++ {
+		et := read8(wram, 0x0E20+i)
+		yl, yh := read8(wram, 0x0D00+i), read8(wram, 0x0D20+i)
+		xl, xh := read8(wram, 0x0D10+i), read8(wram, 0x0D30+i)
+		y := uint16(yl) | uint16(yh)<<8
+		x := uint16(xl) | uint16(xh)<<8
+		coord := AbsToMapCoord(x, y, 0)
+		_, row, col := coord.RowCol()
+		fmt.Printf(
+			"%02x @ abs(%04x, %04x) -> map(%04x, %04x)\n",
+			et,
+			x,
+			y,
+			col,
+			row,
+		)
+	}
+
 	// capture first room state:
 	room.DrawSupertile()
 
-	room.RenderAnimatedRoomDraw(animateRoomDrawingDelay)
+	//room.RenderAnimatedRoomDraw(animateRoomDrawingDelay)
+	//
+	//f := len(room.GIF.Delay) - 1
+	//if f >= 0 {
+	//	room.GIF.Delay[f] += 200
+	//}
 
-	f := len(room.GIF.Delay) - 1
-	if f >= 0 {
-		room.GIF.Delay[f] += 200
-	}
-
-	room.HandleRoomTags()
+	//room.HandleRoomTags()
 
 	//ioutil.WriteFile(fmt.Sprintf("data/%03X.cmap", uint16(st)), (&room.Tiles)[:], 0644)
 

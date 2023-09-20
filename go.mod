@@ -1,4 +1,4 @@
-module github.com/alttpo/mapgen
+module roomloader
 
 go 1.17
 
