@@ -280,19 +280,18 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 			renderBGsep(bg2p, bg2wram, tileset, drawBG2p0, drawBG2p1)
 		}
 
-		// switch everything but the first layer to have 0 as transparent:
-		//var o [4]*image.Paletted
-		//o[0].Palette = pal
-		//palTransp := make(color.Palette, len(pal))
-		//copy(palTransp, pal)
-		//palTransp[0] = color.Transparent
-		//for p := 1; p < 4; p++ {
-		//	o[p].Palette = palTransp
-		//}
-
+		// swap layers depending on color math:
 		if !addColor && !halfColor {
 			bg1p, bg2p = bg2p, bg1p
 		}
+
+		// switch everything but the first layer to have 0 as transparent:
+		palTransp := make(color.Palette, len(pal))
+		copy(palTransp, pal)
+		palTransp[0] = color.Transparent
+		bg1p[1].Palette = palTransp
+		bg2p[0].Palette = palTransp
+		bg2p[1].Palette = palTransp
 
 		frame := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
 		ComposeToPaletted(frame, pal, bg1p, bg2p, addColor, halfColor)

@@ -206,7 +206,7 @@ func main() {
 	flag.BoolVar(&supertileGifs, "gifs", false, "render room GIFs")
 	flag.BoolVar(&animateRoomDrawing, "animate", false, "render animated room drawing GIFs")
 	flag.IntVar(&animateRoomDrawingDelay, "animdelay", 15, "room drawing GIF frame delay")
-	flag.BoolVar(&animateEnemyMovement, "enemygif", false, "render animated GIF of enemy movement")
+	flag.BoolVar(&animateEnemyMovement, "enemygifs", false, "render animated GIF of enemy movement")
 	flag.Parse()
 
 	var err error
@@ -375,14 +375,16 @@ func processEntrance(
 	// build a stack (LIFO) of supertile entry points to visit:
 	lifo := make([]EntryPoint, 0, 0x100)
 	lifo = append(lifo, EntryPoint{g.Supertile, g.EntryCoord, DirNone, ExitPoint{}})
-	// queue up all supertiles that belong to this entrance:
-	for _, supertile := range entranceSupertiles[g.EntranceID] {
-		lifo = append(lifo, EntryPoint{
-			Supertile: Supertile(supertile),
-			Point:     g.EntryCoord, // TODO!
-			Direction: DirNone,
-			From:      ExitPoint{},
-		})
+	if false {
+		// queue up all supertiles that belong to this entrance:
+		for _, supertile := range entranceSupertiles[g.EntranceID] {
+			lifo = append(lifo, EntryPoint{
+				Supertile: Supertile(supertile),
+				Point:     g.EntryCoord, // TODO!
+				Direction: DirNone,
+				From:      ExitPoint{},
+			})
+		}
 	}
 
 	// process the LIFO:

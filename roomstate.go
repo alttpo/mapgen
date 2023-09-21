@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/gif"
+	"os"
 	"sync"
 )
 
@@ -619,6 +620,13 @@ func (room *RoomState) Init() (err error) {
 	// capture first room state:
 	room.DrawSupertile()
 
+	room.RenderAnimatedRoomDraw(animateRoomDrawingDelay)
+
+	f := len(room.GIF.Delay) - 1
+	if f >= 0 {
+		room.GIF.Delay[f] += 200
+	}
+
 	if animateEnemyMovement {
 		{
 			pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
@@ -632,11 +640,12 @@ func (room *RoomState) Init() (err error) {
 			room.EnemyMovementGIF.LoopCount = 0
 		}
 
-		// run for a few frames to see what happens:
-		for i := 0; i < 60; i++ {
+		// run for a few seconds to see what happens:
+		for i := 0; i < 240; i++ {
 			//e.LoggerCPU = os.Stdout
-			if err := e.ExecAtUntil(b00RunSingleFramePC, 0, 0x10000); err != nil {
-				panic(err)
+			if err := e.ExecAtUntil(b00RunSingleFramePC, 0, 0x200000); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				break
 			}
 			//e.LoggerCPU = nil
 
@@ -663,13 +672,6 @@ func (room *RoomState) Init() (err error) {
 
 	//// dump enemy state again:
 	//fmt.Println(hex.Dump(wram[0x0D00:0x0FA0]))
-
-	room.RenderAnimatedRoomDraw(animateRoomDrawingDelay)
-
-	f := len(room.GIF.Delay) - 1
-	if f >= 0 {
-		room.GIF.Delay[f] += 200
-	}
 
 	//room.HandleRoomTags()
 
