@@ -9,6 +9,7 @@ import (
 	"image"
 	"io/ioutil"
 	"os"
+	"strconv"
 	"sync"
 	"unsafe"
 )
@@ -38,6 +39,7 @@ var (
 	supertileGifs            bool
 	animateRoomDrawing       bool
 	animateRoomDrawingDelay  int
+	animateEnemyMovement     bool
 	drawRoomPNGs             bool
 	drawBGLayerPNGs          bool
 	drawEG1                  bool
@@ -204,6 +206,7 @@ func main() {
 	flag.BoolVar(&supertileGifs, "gifs", false, "render room GIFs")
 	flag.BoolVar(&animateRoomDrawing, "animate", false, "render animated room drawing GIFs")
 	flag.IntVar(&animateRoomDrawingDelay, "animdelay", 15, "room drawing GIF frame delay")
+	flag.BoolVar(&animateEnemyMovement, "enemygif", false, "render animated GIF of enemy movement")
 	flag.Parse()
 
 	var err error
@@ -253,8 +256,32 @@ func main() {
 	supertiles = make(map[Supertile]*RoomState, 0x128)
 
 	// iterate over entrances:
+	var entranceMin, entranceMax uint8
+	if flag.NArg() >= 2 {
+		var entranceMin64 uint64
+		entranceMin64, err = strconv.ParseUint(flag.Arg(0), 16, 8)
+		if err != nil {
+			entranceMin64 = 0
+		}
+		entranceMin = uint8(entranceMin64)
+
+		var entranceMax64 uint64
+		entranceMax64, err = strconv.ParseUint(flag.Arg(1), 16, 8)
+		if err != nil {
+			entranceMax64 = entranceCount - 1
+		}
+		entranceMax = uint8(entranceMax64)
+
+		if entranceMax < entranceMin {
+			entranceMin, entranceMax = entranceMax, entranceMin
+		}
+	} else {
+		entranceMin, entranceMax = uint8(0), uint8(entranceCount-1)
+	}
+
 	//entranceMin, entranceMax := uint8(0), uint8(entranceCount-1)
-	entranceMin, entranceMax := uint8(0x4F), uint8(0x4F)
+	//entranceMin, entranceMax := uint8(0x4F), uint8(0x4F)
+
 	wg := sync.WaitGroup{}
 	for eID := entranceMin; eID <= entranceMax; eID++ {
 		g := &entranceGroups[eID]
@@ -735,7 +762,7 @@ func processEntrance(
 
 	// render all supertiles found:
 	for _, room := range g.Rooms {
-		if supertileGifs || animateRoomDrawing {
+		if supertileGifs || animateRoomDrawing || animateEnemyMovement {
 			wg.Add(1)
 			go func(r *RoomState) {
 				fmt.Printf("entrance $%02x supertile %s draw start\n", g.EntranceID, r.Supertile)
@@ -746,6 +773,10 @@ func processEntrance(
 
 				if animateRoomDrawing {
 					RenderGIF(&r.Animated, fmt.Sprintf("data/%03x.room.gif", uint16(r.Supertile)))
+				}
+
+				if animateEnemyMovement {
+					RenderGIF(&r.EnemyMovementGIF, fmt.Sprintf("data/%03x.enemy.gif", uint16(r.Supertile)))
 				}
 
 				fmt.Printf("entrance $%02x supertile %s draw complete\n", g.EntranceID, r.Supertile)

@@ -247,7 +247,7 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 	n0414 := read8(wram, 0x0414)
 	addColor := n0414 == 0x07
 	halfColor := n0414 == 0x04
-	flip := n0414 == 0x03
+	//flip := n0414 == 0x03
 
 	//ioutil.WriteFile(fmt.Sprintf("data/%03X.vram", st), vram, 0644)
 
@@ -261,10 +261,6 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 		bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&tileMap[0x2000])))[:]
 
 		pal := cgramToPalette(cgram)
-
-		palTransp := make(color.Palette, len(pal))
-		copy(palTransp, pal)
-		palTransp[0] = color.Transparent
 
 		bg1p := [2]*image.Paletted{
 			image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
@@ -284,21 +280,22 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 			renderBGsep(bg2p, bg2wram, tileset, drawBG2p0, drawBG2p1)
 		}
 
-		var o [4]*image.Paletted
-
-		if flip || addColor || halfColor {
-			o = [4]*image.Paletted{bg1p[0], bg1p[1], bg2p[0], bg2p[1]}
-		} else {
-			o = [4]*image.Paletted{bg2p[0], bg2p[1], bg1p[0], bg1p[1]}
-		}
-
 		// switch everything but the first layer to have 0 as transparent:
-		o[0].Palette = pal
-		for p := 1; p < 4; p++ {
-			o[p].Palette = palTransp
+		//var o [4]*image.Paletted
+		//o[0].Palette = pal
+		//palTransp := make(color.Palette, len(pal))
+		//copy(palTransp, pal)
+		//palTransp[0] = color.Transparent
+		//for p := 1; p < 4; p++ {
+		//	o[p].Palette = palTransp
+		//}
+
+		if !addColor && !halfColor {
+			bg1p, bg2p = bg2p, bg1p
 		}
 
-		frame := renderBGComposedPaletted(pal, o, addColor, halfColor)
+		frame := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+		ComposeToPaletted(frame, pal, bg1p, bg2p, addColor, halfColor)
 
 		delta := frame
 		disposal := byte(0)
@@ -355,7 +352,7 @@ func (room *RoomState) DrawSupertile() {
 	wram := (&room.WRAM)[:]
 
 	// assume WRAM has rendering state as well:
-	isDark := room.IsDarkRoom()
+	//isDark := room.IsDarkRoom()
 
 	// INIDISP contains PPU brightness
 	brightness := read8(wram, 0x13) & 0xF
@@ -363,191 +360,58 @@ func (room *RoomState) DrawSupertile() {
 
 	//ioutil.WriteFile(fmt.Sprintf("data/%03X.vram", st), vram, 0644)
 
-	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
-	pal := cgramToPalette(cgram)
-
-	palTransp := make(color.Palette, len(pal))
-	copy(palTransp, pal)
-	palTransp[0] = color.Transparent
-
-	// render BG image:
-
-	bg1p := [2]*image.Paletted{
-		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
-		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
-	}
-	bg2p := [2]*image.Paletted{
-		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
-		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
-	}
-
-	doBG2 := !isDark
-
-	bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x2000])))[:]
-	bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x4000])))[:]
-	tileset := (&room.VRAMTileSet)[:]
-
-	// render all separate BG1 and BG2 priority layers:
-	renderBGsep(bg1p, bg1wram, tileset, drawBG1p0, drawBG1p1)
-	if doBG2 {
-		renderBGsep(bg2p, bg2wram, tileset, drawBG2p0, drawBG2p1)
-	}
-
-	var order [4]*image.Paletted
+	// render BG layers:
+	pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
 
 	//subdes := read8(wram, 0x1D)
-	n0414 := read8(wram, 0x0414)
-	addColor := n0414 == 0x07
-	halfColor := n0414 == 0x04
-	flip := n0414 == 0x03
+	//n0414 := read8(wram, 0x0414)
+	//flip := n0414 == 0x03
 
-	if flip || addColor || halfColor {
-		// draw from back to front order:
-		// bg1[1]
-		// bg1[0]
-		// bg2[1]
-		// bg2[0]
-		//order = [4]*image.Paletted{bg1p[1], bg1p[0], bg2p[1], bg2p[0]}
-		order = [4]*image.Paletted{bg1p[0], bg1p[1], bg2p[0], bg2p[1]}
-	} else {
-		// draw from back to front order:
-		// bg2[0]
-		// bg1[0]
-		// bg2[1]
-		// bg1[1]
-		//order = [4]*image.Paletted{bg2p[0], bg1p[0], bg2p[1], bg1p[1]}
-		order = [4]*image.Paletted{bg2p[0], bg2p[1], bg1p[0], bg1p[1]}
+	if room.Rendered != nil {
+		// subsequent GIF frames:
+		frame := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+		ComposeToPaletted(frame, pal, bg1p, bg2p, addColor, halfColor)
+
+		room.GIF.Image = append(room.GIF.Image, frame)
+		room.GIF.Delay = append(room.GIF.Delay, 50)
+		room.GIF.Disposal = append(room.GIF.Disposal, gif.DisposalNone)
+
+		return
 	}
-
-	//if room.Rendered != nil {
-	//	// subsequent GIF frames:
-	//	frame := renderBGComposedPaletted(pal, order, addColor, halfColor)
-	//
-	//	room.GIF.Image = append(room.GIF.Image, frame)
-	//	room.GIF.Delay = append(room.GIF.Delay, 50)
-	//	room.GIF.Disposal = append(room.GIF.Disposal, gif.DisposalNone)
-	//
-	//	return
-	//}
 
 	// switch everything but the first layer to have 0 as transparent:
-	order[0].Palette = pal
-	for p := 1; p < 4; p++ {
-		order[p].Palette = palTransp
-	}
-
-	blankFrame := newBlankFrame()
+	//order[0].Palette = pal
+	//palTransp := make(color.Palette, len(pal))
+	//copy(palTransp, pal)
+	//palTransp[0] = color.Transparent
+	//for p := 1; p < 4; p++ {
+	//	order[p].Palette = palTransp
+	//}
 
 	// first GIF frames build up the layers:
 	frames := [4]*image.Paletted{
-		renderBGComposedPaletted(pal, [4]*image.Paletted{order[0], blankFrame, blankFrame, blankFrame}, addColor, halfColor),
-		renderBGComposedPaletted(pal, [4]*image.Paletted{order[0], order[1], blankFrame, blankFrame}, addColor, halfColor),
-		renderBGComposedPaletted(pal, [4]*image.Paletted{order[0], order[1], order[2], blankFrame}, addColor, halfColor),
-		renderBGComposedPaletted(pal, [4]*image.Paletted{order[0], order[1], order[2], order[3]}, addColor, halfColor),
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
 	}
+
+	ComposeToPaletted(frames[0], pal, bg1p, bg2p, addColor, halfColor)
+	ComposeToPaletted(frames[1], pal, bg1p, bg2p, addColor, halfColor)
+	ComposeToPaletted(frames[2], pal, bg1p, bg2p, addColor, halfColor)
+	ComposeToPaletted(frames[3], pal, bg1p, bg2p, addColor, halfColor)
+
+	//renderBGComposedPaletted(pal, [4]*image.Paletted{order[0], blankFrame, blankFrame, blankFrame}, addColor, halfColor),
+	//renderBGComposedPaletted(pal, [4]*image.Paletted{order[0], order[1], blankFrame, blankFrame}, addColor, halfColor),
+	//renderBGComposedPaletted(pal, [4]*image.Paletted{order[0], order[1], order[2], blankFrame}, addColor, halfColor),
+	//renderBGComposedPaletted(pal, [4]*image.Paletted{order[0], order[1], order[2], order[3]}, addColor, halfColor),
 
 	room.GIF.Image = append(room.GIF.Image, frames[:]...)
 	room.GIF.Delay = append(room.GIF.Delay, 50, 50, 50, 50)
 	room.GIF.Disposal = append(room.GIF.Disposal, 0, 0, 0, 0)
 
 	g := image.NewNRGBA(image.Rect(0, 0, 512, 512))
-
-	if halfColor {
-		// color math: add, half
-		for y := 0; y < 512; y++ {
-			for x := 0; x < 512; x++ {
-				bg1c := pick(bg1p[0].ColorIndexAt(x, y), bg1p[1].ColorIndexAt(x, y))
-				bg2c := pick(bg2p[0].ColorIndexAt(x, y), bg2p[1].ColorIndexAt(x, y))
-				if bg2c != 0 {
-					r1, g1, b1, _ := pal[bg1c].RGBA()
-					r2, g2, b2, _ := pal[bg2c].RGBA()
-					c := color.RGBA64{
-						R: sat(r1>>1 + r2>>1),
-						G: sat(g1>>1 + g2>>1),
-						B: sat(b1>>1 + b2>>1),
-						A: 0xffff,
-					}
-					g.Set(x, y, c)
-				} else {
-					g.Set(x, y, pal[bg1c])
-				}
-			}
-		}
-	} else if addColor {
-		// color math: add
-		for y := 0; y < 512; y++ {
-			for x := 0; x < 512; x++ {
-				bg1c := pick(bg1p[0].ColorIndexAt(x, y), bg1p[1].ColorIndexAt(x, y))
-				bg2c := pick(bg2p[0].ColorIndexAt(x, y), bg2p[1].ColorIndexAt(x, y))
-				r1, g1, b1, _ := pal[bg1c].RGBA()
-				r2, g2, b2, _ := pal[bg2c].RGBA()
-				c := color.RGBA64{
-					R: sat(r1 + r2),
-					G: sat(g1 + g2),
-					B: sat(b1 + b2),
-					A: 0xffff,
-				}
-				g.Set(x, y, c)
-			}
-		}
-	} else {
-		// no color math:
-		for y := 0; y < 512; y++ {
-			for x := 0; x < 512; x++ {
-				c0 := order[0].ColorIndexAt(x, y)
-				c1 := order[1].ColorIndexAt(x, y)
-				c2 := order[2].ColorIndexAt(x, y)
-				c3 := order[3].ColorIndexAt(x, y)
-				c := pick(pick(c0, c1), pick(c2, c3))
-				g.Set(x, y, pal[c])
-			}
-		}
-	}
-
-	//black := image.NewUniform(color.RGBA{0, 0, 0, 255})
-	yellow := image.NewUniform(color.RGBA{255, 255, 0, 255})
-
-	// draw sprites:
-	for i := uint32(0); i < 16; i++ {
-		st := read8(wram, 0x0DD0+i)
-		if st == 0 {
-			continue
-		}
-
-		et := read8(wram, 0x0E20+i)
-
-		yl, yh := read8(wram, 0x0D00+i), read8(wram, 0x0D20+i)
-		xl, xh := read8(wram, 0x0D10+i), read8(wram, 0x0D30+i)
-		y := uint16(yl) | uint16(yh)<<8
-		x := uint16(xl) | uint16(xh)<<8
-
-		var lx, ly int
-		if true {
-			lx = int(x) & 0x1FF
-			ly = int(y) & 0x1FF
-		} else {
-			coord := AbsToMapCoord(x, y, 0)
-			_, row, col := coord.RowCol()
-			lx = int(col << 3)
-			ly = int(row << 3)
-		}
-
-		//fmt.Printf(
-		//	"%02x @ abs(%04x, %04x) -> map(%04x, %04x)\n",
-		//	et,
-		//	x,
-		//	y,
-		//	col,
-		//	row,
-		//)
-
-		(&font.Drawer{
-			Dst:  g,
-			Src:  yellow,
-			Face: inconsolata.Bold8x16,
-			Dot:  fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)},
-		}).DrawString(fmt.Sprintf("%02x", et))
-	}
+	ComposeToNonPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
 
 	//if isDark {
 	//	// darken the room
@@ -595,6 +459,111 @@ func (room *RoomState) DrawSupertile() {
 	}
 }
 
+func (room *RoomState) RenderBGLayers() (
+	pal color.Palette,
+	bg1p [2]*image.Paletted,
+	bg2p [2]*image.Paletted,
+	addColor, halfColor bool,
+) {
+	wram := (&room.WRAM)[:]
+
+	// assume WRAM has rendering state as well:
+	isDark := room.IsDarkRoom()
+
+	// INIDISP contains PPU brightness
+	//brightness := read8(wram, 0x13) & 0xF
+	//_ = brightness
+
+	//ioutil.WriteFile(fmt.Sprintf("data/%03X.vram", st), vram, 0644)
+
+	// extract palette:
+	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
+	pal = cgramToPalette(cgram)
+
+	// render BG layers:
+	bg1p = [2]*image.Paletted{
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+	}
+	bg2p = [2]*image.Paletted{
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+	}
+
+	// render all separate BG1 and BG2 priority layers:
+	{
+		tileset := (&room.VRAMTileSet)[:]
+		bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x2000])))[:]
+		renderBGsep(bg1p, bg1wram, tileset, drawBG1p0, drawBG1p1)
+		if !isDark {
+			bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x4000])))[:]
+			renderBGsep(bg2p, bg2wram, tileset, drawBG2p0, drawBG2p1)
+		}
+	}
+
+	//subdes := read8(wram, 0x1D)
+	n0414 := read8(wram, 0x0414)
+	addColor = n0414 == 0x07
+	halfColor = n0414 == 0x04
+	//flip := n0414 == 0x03
+
+	// swap bg1 and bg2 if color math is involved:
+	if !addColor && !halfColor {
+		bg1p, bg2p = bg2p, bg1p
+	}
+
+	return
+}
+
+func (room *RoomState) RenderSprites(g draw.Image) {
+	wram := (&room.WRAM)[:]
+
+	//black := image.NewUniform(color.RGBA{0, 0, 0, 255})
+	yellow := image.NewUniform(color.RGBA{255, 255, 0, 255})
+
+	// draw sprites:
+	for i := uint32(0); i < 16; i++ {
+		st := read8(wram, 0x0DD0+i)
+		if st == 0 {
+			continue
+		}
+
+		et := read8(wram, 0x0E20+i)
+
+		yl, yh := read8(wram, 0x0D00+i), read8(wram, 0x0D20+i)
+		xl, xh := read8(wram, 0x0D10+i), read8(wram, 0x0D30+i)
+		y := uint16(yl) | uint16(yh)<<8
+		x := uint16(xl) | uint16(xh)<<8
+
+		var lx, ly int
+		if true {
+			lx = int(x) & 0x1FF
+			ly = int(y) & 0x1FF
+		} else {
+			coord := AbsToMapCoord(x, y, 0)
+			_, row, col := coord.RowCol()
+			lx = int(col << 3)
+			ly = int(row << 3)
+		}
+
+		//fmt.Printf(
+		//	"%02x @ abs(%04x, %04x) -> map(%04x, %04x)\n",
+		//	et,
+		//	x,
+		//	y,
+		//	col,
+		//	row,
+		//)
+
+		(&font.Drawer{
+			Dst:  g,
+			Src:  yellow,
+			Face: inconsolata.Bold8x16,
+			Dot:  fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)},
+		}).DrawString(fmt.Sprintf("%02x", et))
+	}
+}
+
 func newBlankFrame() *image.Paletted {
 	return image.NewPaletted(
 		image.Rect(0, 0, 512, 512),
@@ -619,29 +588,90 @@ func pick(c0, c1 uint8) uint8 {
 	}
 }
 
-func renderBGComposedPaletted(
+func ComposeToNonPaletted(
+	dst draw.Image,
 	pal color.Palette,
-	order [4]*image.Paletted,
+	bg1p [2]*image.Paletted,
+	bg2p [2]*image.Paletted,
 	addColor bool,
 	halfColor bool,
-) *image.Paletted {
-	frame := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+) {
+	if halfColor {
+		// color math: add half
+		for y := 0; y < 512; y++ {
+			for x := 0; x < 512; x++ {
+				bg1c := pick(bg1p[0].ColorIndexAt(x, y), bg1p[1].ColorIndexAt(x, y))
+				bg2c := pick(bg2p[0].ColorIndexAt(x, y), bg2p[1].ColorIndexAt(x, y))
+				if bg2c != 0 {
+					r1, g1, b1, _ := pal[bg1c].RGBA()
+					r2, g2, b2, _ := pal[bg2c].RGBA()
+					c := color.RGBA64{
+						R: sat(r1>>1 + r2>>1),
+						G: sat(g1>>1 + g2>>1),
+						B: sat(b1>>1 + b2>>1),
+						A: 0xffff,
+					}
+					dst.Set(x, y, c)
+				} else {
+					dst.Set(x, y, pal[bg1c])
+				}
+			}
+		}
+	} else if addColor {
+		// color math: add
+		for y := 0; y < 512; y++ {
+			for x := 0; x < 512; x++ {
+				bg1c := pick(bg1p[0].ColorIndexAt(x, y), bg1p[1].ColorIndexAt(x, y))
+				bg2c := pick(bg2p[0].ColorIndexAt(x, y), bg2p[1].ColorIndexAt(x, y))
+				r1, g1, b1, _ := pal[bg1c].RGBA()
+				r2, g2, b2, _ := pal[bg2c].RGBA()
+				c := color.RGBA64{
+					R: sat(r1 + r2),
+					G: sat(g1 + g2),
+					B: sat(b1 + b2),
+					A: 0xffff,
+				}
+				dst.Set(x, y, c)
+			}
+		}
+	} else {
+		// no color math:
+		for y := 0; y < 512; y++ {
+			for x := 0; x < 512; x++ {
+				c0 := bg1p[0].ColorIndexAt(x, y)
+				c1 := bg1p[1].ColorIndexAt(x, y)
+				c2 := bg2p[0].ColorIndexAt(x, y)
+				c3 := bg2p[1].ColorIndexAt(x, y)
+				c := pick(pick(c0, c1), pick(c2, c3))
+				dst.Set(x, y, pal[c])
+			}
+		}
+	}
+}
 
+func ComposeToPaletted(
+	dst *image.Paletted,
+	pal color.Palette,
+	bg1p [2]*image.Paletted,
+	bg2p [2]*image.Paletted,
+	addColor bool,
+	halfColor bool,
+) {
 	// store mixed colors in second half of palette which is unused by BG layers:
 	hc := uint8(128)
 	mixedColors := make(map[uint16]uint8, 0x200)
 
 	for y := 0; y < 512; y++ {
 		for x := 0; x < 512; x++ {
-			c0 := order[0].ColorIndexAt(x, y)
-			c1 := order[1].ColorIndexAt(x, y)
-			c2 := order[2].ColorIndexAt(x, y)
-			c3 := order[3].ColorIndexAt(x, y)
+			var c uint8
+			c0 := bg1p[0].ColorIndexAt(x, y)
+			c1 := bg1p[1].ColorIndexAt(x, y)
+			c2 := bg2p[0].ColorIndexAt(x, y)
+			c3 := bg2p[1].ColorIndexAt(x, y)
 
 			m1 := pick(c0, c1)
 			m2 := pick(c2, c3)
 
-			var c uint8
 			if addColor || halfColor {
 				if m2 == 0 {
 					c = m1
@@ -676,12 +706,11 @@ func renderBGComposedPaletted(
 				c = pick(m1, m2)
 			}
 
-			frame.SetColorIndex(x, y, c)
+			dst.SetColorIndex(x, y, c)
 		}
 	}
-	frame.Palette = pal
 
-	return frame
+	dst.Palette = pal
 }
 
 func RenderGIF(g *gif.GIF, fname string) {

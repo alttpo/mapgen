@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
 	"image"
 	"image/color"
@@ -43,13 +42,15 @@ type RoomState struct {
 	IsLoaded bool
 
 	Rendered image.Image
-	gif.GIF
+	GIF      gif.GIF
 
 	Animated        gif.GIF // single room drawing animation
 	AnimatedTileMap [][0x4000]byte
 	AnimatedLayers  []int
 
 	AnimatedLayer int
+
+	EnemyMovementGIF gif.GIF
 
 	EntryPoints []EntryPoint
 	ExitPoints  []ExitPoint
@@ -613,31 +614,62 @@ func (room *RoomState) Init() (err error) {
 	}
 
 	// dump enemy state:
-	fmt.Println(hex.Dump(wram[0x0D00:0x0FA0]))
+	//fmt.Println(hex.Dump(wram[0x0D00:0x0FA0]))
 
 	// capture first room state:
 	room.DrawSupertile()
 
-	// run for a few frames to see what happens:
-	for i := 0; i < 2; i++ {
-		//e.LoggerCPU = os.Stdout
-		if err := e.ExecAtUntil(b00RunSingleFramePC, 0, 0x10000); err != nil {
-			panic(err)
+	if animateEnemyMovement {
+		{
+			pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
+			g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+			ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
+			room.RenderSprites(g)
+
+			room.EnemyMovementGIF.Image = append(room.EnemyMovementGIF.Image, g)
+			room.EnemyMovementGIF.Delay = append(room.EnemyMovementGIF.Delay, 100)
+			room.EnemyMovementGIF.Disposal = append(room.EnemyMovementGIF.Disposal, gif.DisposalNone)
+			room.EnemyMovementGIF.LoopCount = 0
 		}
-		//e.LoggerCPU = nil
+
+		// run for a few frames to see what happens:
+		for i := 0; i < 60; i++ {
+			//e.LoggerCPU = os.Stdout
+			if err := e.ExecAtUntil(b00RunSingleFramePC, 0, 0x10000); err != nil {
+				panic(err)
+			}
+			//e.LoggerCPU = nil
+
+			{
+				pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
+				g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+				ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
+				room.RenderSprites(g)
+
+				delta := g
+				disposal := byte(0)
+				if optimizeGIFs {
+					lastFrame := room.EnemyMovementGIF.Image[len(room.EnemyMovementGIF.Image)-1]
+					delta = generateDeltaFrame(lastFrame, g)
+					disposal = gif.DisposalNone
+				}
+
+				room.EnemyMovementGIF.Image = append(room.EnemyMovementGIF.Image, delta)
+				room.EnemyMovementGIF.Delay = append(room.EnemyMovementGIF.Delay, 2)
+				room.EnemyMovementGIF.Disposal = append(room.EnemyMovementGIF.Disposal, disposal)
+			}
+		}
 	}
 
-	// dump enemy state again:
-	fmt.Println(hex.Dump(wram[0x0D00:0x0FA0]))
+	//// dump enemy state again:
+	//fmt.Println(hex.Dump(wram[0x0D00:0x0FA0]))
 
-	room.DrawSupertile()
+	room.RenderAnimatedRoomDraw(animateRoomDrawingDelay)
 
-	//room.RenderAnimatedRoomDraw(animateRoomDrawingDelay)
-	//
-	//f := len(room.GIF.Delay) - 1
-	//if f >= 0 {
-	//	room.GIF.Delay[f] += 200
-	//}
+	f := len(room.GIF.Delay) - 1
+	if f >= 0 {
+		room.GIF.Delay[f] += 200
+	}
 
 	//room.HandleRoomTags()
 
