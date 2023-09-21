@@ -342,7 +342,8 @@ func main() {
 
 	if outputEntranceSupertiles {
 		fmt.Printf("rooms := map[uint8][]uint16{\n")
-		for _, g := range entranceGroups {
+		for i := range entranceGroups {
+			g := &entranceGroups[i]
 			sts := make([]uint16, 0, 0x100)
 			for _, r := range g.Rooms {
 				sts = append(sts, uint16(r.Supertile))
@@ -913,6 +914,7 @@ func setupAlttp(e *System) {
 	b01LoadAndDrawRoomSetSupertilePC |= fastRomBank
 	b02LoadUnderworldSupertilePC |= fastRomBank
 
+	// NOTE: appears unused
 	{
 		// must execute in bank $01
 		a = asm.NewEmitter(e.HWIO.Dyn[0x01_5100&0xFFFF-0x5000:], true)
@@ -924,6 +926,7 @@ func setupAlttp(e *System) {
 			b01LoadAndDrawRoomSetSupertilePC = a.Label("loadAndDrawRoomSetSupertile") + 1
 			a.LDA_imm16_w(0x0000)
 			a.STA_dp(0xA0)
+			a.STA_abs(0x048E)
 			a.SEP(0x30)
 
 			// loads header and draws room

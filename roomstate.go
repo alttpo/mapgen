@@ -78,9 +78,10 @@ type RoomState struct {
 	Reachable [0x2000]byte
 	Hookshot  map[MapCoord]byte
 
-	e           System
-	WRAM        [0x20000]byte
-	VRAMTileSet [0x4000]byte
+	e               System
+	WRAM            [0x20000]byte
+	WRAMAfterLoaded [0x20000]byte
+	VRAMTileSet     [0x4000]byte
 
 	markedPit   bool
 	markedFloor bool
@@ -130,6 +131,7 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 
 	// load and draw current supertile:
 	write16(wram, 0xA0, uint16(st))
+	write16(wram, 0x048E, uint16(st))
 
 	if animateRoomDrawing {
 		// clear tile map first:
@@ -191,6 +193,9 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 		return
 	}
 	//e.LoggerCPU = nil
+
+	// make a copy of WRAM after loading supertile:
+	room.WRAMAfterLoaded = room.WRAM
 
 	if animateRoomDrawing {
 		// capture final frame:
@@ -632,8 +637,23 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 
 	if animateEnemyMovement {
 		// place Link at the entrypoint:
+		room.WRAM = room.WRAMAfterLoaded
 		{
 			linkX, linkY := ep.Point.ToAbsCoord(st)
+			// nudge link within visible bounds:
+			if linkX&0x1FF < 0x20 {
+				linkX += 0x20
+			}
+			if linkX&0x1FF > 0x1E0 {
+				linkX -= 0x20
+			}
+			if linkY&0x1FF < 0x20 {
+				linkY += 0x20
+			}
+			if linkY&0x1FF > 0x1E0 {
+				linkY -= 0x20
+			}
+			linkY += 14
 			write16(wram, 0x22, linkX)
 			write16(wram, 0x20, linkY)
 		}
@@ -659,6 +679,12 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 				fmt.Fprintln(os.Stderr, err)
 				break
 			}
+
+			// sanity check:
+			if supertileWram := read16(wram, 0xA0); supertileWram != uint16(room.Supertile) {
+				panic(fmt.Sprintf("%03x.%02x: supertile in wram does not match expected", uint16(room.Supertile), room.Entrance.EntranceID))
+			}
+
 			//e.LoggerCPU = nil
 
 			{
