@@ -11,10 +11,22 @@ type WRAMArray = [0x20000]byte
 type SRAMArray = [0x10000]byte
 type VRAMArray = [0x10000]byte
 
+type BusMapping int
+
+const (
+	BusUnspec BusMapping = iota
+	BusLoROM
+	BusHiROM
+	BusExLoROM
+	BusExHiROM
+)
+
 type System struct {
 	// emulated system:
 	cpualt.CPU
-	HWIO
+	HWIO HWIO
+
+	BusMapping BusMapping
 
 	ROM  []byte
 	WRAM *WRAMArray
@@ -45,6 +57,8 @@ func (s *System) InitEmulatorFrom(initEmu *System) (err error) {
 	s.Logger = initEmu.Logger
 	s.LoggerCPU = initEmu.LoggerCPU
 
+	s.BusMapping = initEmu.BusMapping
+
 	s.ROM = initEmu.ROM
 
 	// copy memory contents:
@@ -56,8 +70,19 @@ func (s *System) InitEmulatorFrom(initEmu *System) (err error) {
 
 	s.CPU.InitFrom(&initEmu.CPU)
 
-	if err = s.InitLoROMBus(); err != nil {
-		return
+	switch s.BusMapping {
+	case BusLoROM:
+		if err = s.InitBusLoROM(); err != nil {
+			return
+		}
+		break
+	case BusHiROM:
+		if err = s.InitBusHiROM(); err != nil {
+			return
+		}
+		break
+	default:
+		panic("unsupported bus mapping type")
 	}
 
 	return
@@ -69,10 +94,88 @@ func (s *System) InitEmulator() (err error) {
 	// create CPU and Bus:
 	s.CPU.Init()
 
-	return s.InitLoROMBus()
+	return s.InitBusLoROM()
 }
 
-func (s *System) InitLoROMBus() (err error) {
+func (s *System) InitBusWRAM() (err error) {
+	// WRAM:
+	s.Bus.AttachReader(
+		0x7E_0000,
+		0x7F_FFFF,
+		func(addr uint32) uint8 { return s.WRAM[addr-0x7E_0000] },
+	)
+	s.Bus.AttachWriter(
+		0x7E_0000,
+		0x7F_FFFF,
+		func(addr uint32, val uint8) { s.WRAM[addr-0x7E_0000] = val },
+	)
+
+	// map in first $2000 of each bank as a mirror of WRAM:
+	for b := uint32(0); b < 0x40; b++ {
+		bank := b << 16
+		s.Bus.AttachReader(
+			bank,
+			bank|0x1FFF,
+			func(addr uint32) uint8 { return s.WRAM[addr-bank] },
+		)
+		s.Bus.AttachWriter(
+			bank,
+			bank|0x1FFF,
+			func(addr uint32, val uint8) { s.WRAM[addr-bank] = val },
+		)
+	}
+	for b := uint32(0x80); b < 0xC0; b++ {
+		bank := b << 16
+		s.Bus.AttachReader(
+			bank,
+			bank|0x1FFF,
+			func(addr uint32) uint8 { return s.WRAM[addr-bank] },
+		)
+		s.Bus.AttachWriter(
+			bank,
+			bank|0x1FFF,
+			func(addr uint32, val uint8) { s.WRAM[addr-bank] = val },
+		)
+	}
+
+	return
+}
+
+func (s *System) InitBusHWIO() (err error) {
+	s.HWIO.s = s
+
+	// Memory-mapped IO registers:
+	for b := uint32(0); b < 0x40; b++ {
+		bank := b << 16
+		s.Bus.AttachReader(
+			bank|0x2000,
+			bank|0x5FFF,
+			s.HWIO.Read,
+		)
+		s.Bus.AttachWriter(
+			bank|0x2000,
+			bank|0x5FFF,
+			s.HWIO.Write,
+		)
+	}
+	for b := uint32(0x80); b < 0xC0; b++ {
+		bank := b << 16
+		s.Bus.AttachReader(
+			bank|0x2000,
+			bank|0x5FFF,
+			s.HWIO.Read,
+		)
+		s.Bus.AttachWriter(
+			bank|0x2000,
+			bank|0x5FFF,
+			s.HWIO.Write,
+		)
+	}
+
+	return
+}
+
+func (s *System) InitBusLoROM() (err error) {
 	// map in ROM to Bus; parts of this mapping will be overwritten:
 	for b := uint32(0); b < 0x40; b++ {
 		halfBank := b << 15
@@ -91,7 +194,7 @@ func (s *System) InitLoROMBus() (err error) {
 		)
 	}
 
-	// SRAM (banks 70-7D,F0-FF) (7E,7F) will be overwritten with WRAM:
+	// SRAM (banks 70-7D,F0-FF); (7E,7F) will be overwritten with WRAM:
 	for b := uint32(0); b < uint32(len(s.SRAM)>>15); b++ {
 		bank := b << 16
 		halfBank := b << 15
@@ -117,76 +220,74 @@ func (s *System) InitLoROMBus() (err error) {
 		)
 	}
 
-	// WRAM:
-	{
-		s.Bus.AttachReader(
-			0x7E_0000,
-			0x7F_FFFF,
-			func(addr uint32) uint8 { return s.WRAM[addr-0x7E_0000] },
-		)
-		s.Bus.AttachWriter(
-			0x7E_0000,
-			0x7F_FFFF,
-			func(addr uint32, val uint8) { s.WRAM[addr-0x7E_0000] = val },
-		)
-
-		// map in first $2000 of each bank as a mirror of WRAM:
-		for b := uint32(0); b < 0x70; b++ {
-			bank := b << 16
-			s.Bus.AttachReader(
-				bank,
-				bank|0x1FFF,
-				func(addr uint32) uint8 { return s.WRAM[addr-bank] },
-			)
-			s.Bus.AttachWriter(
-				bank,
-				bank|0x1FFF,
-				func(addr uint32, val uint8) { s.WRAM[addr-bank] = val },
-			)
-		}
-		for b := uint32(0x80); b < 0xF0; b++ {
-			bank := b << 16
-			s.Bus.AttachReader(
-				bank,
-				bank|0x1FFF,
-				func(addr uint32) uint8 { return s.WRAM[addr-bank] },
-			)
-			s.Bus.AttachWriter(
-				bank,
-				bank|0x1FFF,
-				func(addr uint32, val uint8) { s.WRAM[addr-bank] = val },
-			)
-		}
+	if err = s.InitBusWRAM(); err != nil {
+		return
+	}
+	if err = s.InitBusHWIO(); err != nil {
+		return
 	}
 
-	// Memory-mapped IO registers:
-	{
-		s.HWIO.s = s
-		for b := uint32(0); b < 0x70; b++ {
-			bank := b << 16
-			s.Bus.AttachReader(
-				bank|0x2000,
-				bank|0x7FFF,
-				s.HWIO.Read,
-			)
-			s.Bus.AttachWriter(
-				bank|0x2000,
-				bank|0x7FFF,
-				s.HWIO.Write,
-			)
+	return
+}
 
-			bank = (b + 0x80) << 16
+func (s *System) InitBusHiROM() (err error) {
+	// map in ROM to Bus; parts of this mapping will be overwritten:
+	for b := uint32(0); b < 0x40; b++ {
+		halfBank := b << 15
+		bank := b << 16
+		s.Bus.AttachReader(
+			bank|0x8000,
+			bank|0xFFFF,
+			func(addr uint32) uint8 { return s.ROM[halfBank+(addr-(bank|0x8000))] },
+		)
+
+		// mirror to 80..BF:
+		bank80 := bank | 0x80_0000
+		s.Bus.AttachReader(
+			bank80|0x8000,
+			bank80|0xFFFF,
+			func(addr uint32) uint8 { return s.ROM[halfBank+(addr-(bank80|0x8000))] },
+		)
+
+		// mirror full banks 40..7F:
+		bank40 := (b + 0x40) << 16
+		if bank40 < 0x7E { // precaution: dont overwrite WRAM mapping
 			s.Bus.AttachReader(
-				bank|0x2000,
-				bank|0x7FFF,
-				s.HWIO.Read,
-			)
-			s.Bus.AttachWriter(
-				bank|0x2000,
-				bank|0x7FFF,
-				s.HWIO.Write,
+				bank40,
+				bank40|0xFFFF,
+				func(addr uint32) uint8 { return s.ROM[addr-bank40] },
 			)
 		}
+		// mirror full banks C0..FF:
+		bankC0 := (b + 0xC0) << 16
+		s.Bus.AttachReader(
+			bankC0,
+			bankC0|0xFFFF,
+			func(addr uint32) uint8 { return s.ROM[addr-bankC0] },
+		)
+	}
+
+	// SRAM (banks 20-3F,A0-BF : 6000-7FFF):
+	for b, offs := uint32(0x20), uint32(0); b < 0x40; b, offs = b+1, offs+0x2000 {
+		bank20 := b<<16 | 0x6000
+		s.Bus.AttachReader(
+			bank20,
+			bank20|0x1FFF,
+			func(addr uint32) uint8 { return s.SRAM[((addr&0x1F_0000)>>13)|(addr-bank20)] },
+		)
+		bankA0 := (b+0x80)<<16 | 0x6000
+		s.Bus.AttachReader(
+			bankA0,
+			bankA0|0x1FFF,
+			func(addr uint32) uint8 { return s.SRAM[((addr&0x1F_0000)>>13)|(addr-bankA0)] },
+		)
+	}
+
+	if err = s.InitBusHWIO(); err != nil {
+		return
+	}
+	if err = s.InitBusWRAM(); err != nil {
+		return
 	}
 
 	return

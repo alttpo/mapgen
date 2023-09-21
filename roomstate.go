@@ -116,7 +116,7 @@ func CreateRoom(ent *Entrance, st Supertile, initEmu *System) (room *RoomState) 
 	return
 }
 
-func (room *RoomState) Init() (err error) {
+func (room *RoomState) Init(ep EntryPoint) (err error) {
 	if room.IsLoaded {
 		return
 	}
@@ -631,6 +631,14 @@ func (room *RoomState) Init() (err error) {
 	}
 
 	if animateEnemyMovement {
+		// place Link at the entrypoint:
+		{
+			linkX, linkY := ep.Point.ToAbsCoord(st)
+			write16(wram, 0x22, linkX)
+			write16(wram, 0x20, linkY)
+		}
+
+		// first frame of enemy movement GIF is static for 1 second:
 		{
 			pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
 			g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
@@ -645,6 +653,7 @@ func (room *RoomState) Init() (err error) {
 
 		// run for a few seconds to see what happens:
 		for i := 0; i < 240; i++ {
+			//fmt.Println("FRAME")
 			//e.LoggerCPU = os.Stdout
 			if err := e.ExecAtUntil(b00RunSingleFramePC, 0, 0x200000); err != nil {
 				fmt.Fprintln(os.Stderr, err)

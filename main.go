@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"flag"
 	"fmt"
+	"github.com/alttpo/snes"
 	"github.com/alttpo/snes/asm"
 	"github.com/alttpo/snes/mapping/lorom"
 	"image"
@@ -19,7 +21,7 @@ var (
 	b01LoadAndDrawRoomPC             uint32
 	b01LoadAndDrawRoomSetSupertilePC uint32
 	b00HandleRoomTagsPC              uint32 = 0x00_5300
-	b00RunSingleFramePC              uint32 = 0x80_5400
+	b00RunSingleFramePC              uint32 = 0x00_5400
 	loadEntrancePC                   uint32
 	setEntranceIDPC                  uint32
 	loadSupertilePC                  uint32
@@ -187,6 +189,8 @@ var entranceSupertiles = map[uint8][]uint16{
 	0x84: []uint16{},
 }
 
+var fastRomBank uint32 = 0
+
 func main() {
 	flag.BoolVar(&optimizeGIFs, "optimize", true, "optimize GIFs for size with delta frames")
 	flag.BoolVar(&outputEntranceSupertiles, "entrancemap", false, "dump entrance-supertile map to stdout")
@@ -209,30 +213,70 @@ func main() {
 
 	var err error
 
-	var f *os.File
-	//f, err = os.Open("alttp-jp.sfc")
-	f, err = os.Open("DR_258664040_RACBg6NFQLkAAwGBEA.sfc")
-	if err != nil {
-		panic(err)
-	}
-
 	// create the CPU-only SNES emulator:
 	e := System{
-		Logger:    os.Stdout,
-		LoggerCPU: nil,
-		ROM:       make([]byte, 0x100_0000),
+		//Logger:    os.Stdout,
+		LoggerCPU:  nil,
+		BusMapping: BusLoROM,
+		ROM:        make([]byte, 0x100_0000),
+	}
+
+	args := flag.Args()
+
+	var romPath string
+	{
+		if len(args) > 0 {
+			romPath = args[0]
+			args = args[1:]
+		} else {
+			romPath = "alttp-jp.sfc"
+		}
+
+		var f *os.File
+		f, err = os.Open(romPath)
+		if err != nil {
+			panic(err)
+		}
+
+		_, err = f.Read(e.ROM[:])
+		if err != nil {
+			panic(err)
+		}
+		err = f.Close()
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	// read the ROM header
+	{
+		var h snes.Header
+		if err = h.ReadHeader(bytes.NewReader(e.ROM[0x7FB0:0x8000])); err != nil {
+			panic(err)
+		}
+		mapper := h.MapMode & ^uint8(0x10)
+		if mapper == 0x20 {
+			e.BusMapping = BusLoROM
+		} else if mapper == 0x21 {
+			e.BusMapping = BusHiROM
+		} else if mapper == 0x22 {
+			e.BusMapping = BusExLoROM
+		} else if mapper == 0x25 {
+			e.BusMapping = BusExHiROM
+		} else {
+			panic("unrecognized MapMode in ROM header")
+		}
+
+		if h.MapMode&0x10 != 0 {
+			fmt.Println("FastROM")
+			fastRomBank = 0x80_0000
+		} else {
+			fmt.Println("SlowROM")
+			fastRomBank = 0
+		}
 	}
 
 	if err = e.InitEmulator(); err != nil {
-		panic(err)
-	}
-
-	_, err = f.Read(e.ROM[:])
-	if err != nil {
-		panic(err)
-	}
-	err = f.Close()
-	if err != nil {
 		panic(err)
 	}
 
@@ -254,20 +298,22 @@ func main() {
 
 	// iterate over entrances:
 	var entranceMin, entranceMax uint8
-	if flag.NArg() >= 2 {
+	if len(args) >= 2 {
 		var entranceMin64 uint64
-		entranceMin64, err = strconv.ParseUint(flag.Arg(0), 16, 8)
+		entranceMin64, err = strconv.ParseUint(args[0], 16, 8)
 		if err != nil {
 			entranceMin64 = 0
 		}
 		entranceMin = uint8(entranceMin64)
 
 		var entranceMax64 uint64
-		entranceMax64, err = strconv.ParseUint(flag.Arg(1), 16, 8)
+		entranceMax64, err = strconv.ParseUint(args[1], 16, 8)
 		if err != nil {
 			entranceMax64 = entranceCount - 1
 		}
 		entranceMax = uint8(entranceMax64)
+
+		args = args[2:]
 
 		if entranceMax < entranceMin {
 			entranceMin, entranceMax = entranceMax, entranceMin
@@ -418,7 +464,7 @@ func processEntrance(
 		room.Lock()
 		//fmt.Printf("entrance $%02x supertile %s discover from entry %s start\n", eID, room.Supertile, ep)
 
-		if err = room.Init(); err != nil {
+		if err = room.Init(ep); err != nil {
 			panic(err)
 		}
 
@@ -857,14 +903,20 @@ func setupAlttp(e *System) {
 	//#_008029: JSR Sound_LoadIntroSongBank		// skip this
 	// this is useless zeroing of memory; don't need to run it
 	//#_00802C: JSR Startup_InitializeMemory
-	if err = e.Exec(0x80_8029); err != nil {
+	if err = e.Exec(fastRomBank | 0x00_8029); err != nil {
 		panic(err)
 	}
+
+	b00RunSingleFramePC |= fastRomBank
+	b00HandleRoomTagsPC |= fastRomBank
+	b01LoadAndDrawRoomPC |= fastRomBank
+	b01LoadAndDrawRoomSetSupertilePC |= fastRomBank
+	b02LoadUnderworldSupertilePC |= fastRomBank
 
 	{
 		// must execute in bank $01
 		a = asm.NewEmitter(e.HWIO.Dyn[0x01_5100&0xFFFF-0x5000:], true)
-		a.SetBase(0x01_5100)
+		a.SetBase(fastRomBank | 0x01_5100)
 
 		{
 			b01LoadAndDrawRoomPC = a.Label("loadAndDrawRoom")
@@ -876,12 +928,12 @@ func setupAlttp(e *System) {
 
 			// loads header and draws room
 			a.Comment("Underworld_LoadRoom#_01873A")
-			a.JSL(0x01_873A)
+			a.JSL(fastRomBank | 0x01_873A)
 
 			a.Comment("Underworld_LoadCustomTileAttributes#_0FFD65")
-			a.JSL(0x0F_FD65)
+			a.JSL(fastRomBank | 0x0F_FD65)
 			a.Comment("Underworld_LoadAttributeTable#_01B8BF")
-			a.JSL(0x01_B8BF)
+			a.JSL(fastRomBank | 0x01_B8BF)
 
 			// then JSR Underworld_LoadHeader#_01B564 to reload the doors into $19A0[16]
 			//a.BRA("jslUnderworld_LoadHeader")
@@ -928,13 +980,20 @@ func setupAlttp(e *System) {
 	{
 		// emit into our custom $00:5000 routine:
 		a = asm.NewEmitter(e.HWIO.Dyn[:], true)
-		a.SetBase(0x00_5000)
+		a.SetBase(fastRomBank | 0x00_5000)
 		a.SEP(0x30)
 
-		a.Comment("InitializeTriforceIntro#_0CF03B: sets up initial state")
-		a.JSL(0x0C_F03B)
-		a.Comment("LoadDefaultTileAttributes#_0FFD2A")
-		a.JSL(0x0F_FD2A)
+		//a.Comment("InitializeTriforceIntro#_0CF03B: sets up initial state")
+		//a.JSL(fastRomBank | 0x0C_F03B)
+		a.Comment("Intro_CreateTextPointers#_028022")
+		a.JSL(fastRomBank | 0x02_8022)
+		a.Comment("DecompressFontGFX#_0EF572")
+		a.JSL(fastRomBank | 0x0E_F572)
+		a.Comment("Overworld_LoadAllPalettes_long#_02802A")
+		a.JSL(fastRomBank | 0x02_802A)
+
+		a.Comment("LoadDefaultTileTypes#_0FFD2A")
+		a.JSL(fastRomBank | 0x0F_FD2A)
 
 		// general world state:
 		a.Comment("disable rain")
@@ -961,14 +1020,14 @@ func setupAlttp(e *System) {
 
 		// loads a dungeon given an entrance ID:
 		a.Comment("JSL Module_MainRouting")
-		a.JSL(0x00_80B5)
+		a.JSL(fastRomBank | 0x00_80B5)
 		a.BRA("updateVRAM")
 
 		loadSupertilePC = a.Label("loadSupertile")
 		a.SEP(0x30)
 		a.INC_abs(0x0710)
 		a.Comment("Intro_InitializeDefaultGFX after JSL DecompressAnimatedUnderworldTiles")
-		a.JSL(0x0C_C237)
+		a.JSL(fastRomBank | 0x0C_C237)
 		a.STZ_dp(0x11)
 		a.Comment("LoadUnderworldSupertile")
 		a.JSL(b02LoadUnderworldSupertilePC)
@@ -1020,9 +1079,9 @@ func setupAlttp(e *System) {
 		a.STZ_abs(0x04C7)
 
 		//a.Comment("Graphics_LoadChrHalfSlot#_00E43A")
-		//a.JSL(0x00_E43A)
+		//a.JSL(fastRomBank | 0x00_E43A)
 		a.Comment("Underworld_HandleRoomTags#_01C2FD")
-		a.JSL(0x01_C2FD)
+		a.JSL(fastRomBank | 0x01_C2FD)
 
 		// check if submodule changed:
 		a.LDA_dp(0x11)
@@ -1030,7 +1089,7 @@ func setupAlttp(e *System) {
 
 		a.Label("continue_submodule")
 		a.Comment("JSL Module_MainRouting")
-		a.JSL(0x00_80B5)
+		a.JSL(fastRomBank | 0x00_80B5)
 
 		a.Label("no_submodule")
 		// this code sets up the DMA transfer parameters for animated BG tiles:
@@ -1076,7 +1135,7 @@ func setupAlttp(e *System) {
 
 		//a.Label("continue_submodule")
 		a.Comment("JSL Module_MainRouting")
-		a.JSL(0x80_80B5)
+		a.JSL(fastRomBank | 0x00_80B5)
 
 		a.Label("no_submodule")
 		// this code sets up the DMA transfer parameters for animated BG tiles:
@@ -1108,7 +1167,7 @@ func setupAlttp(e *System) {
 
 	{
 		// skip over music & sfx loading since we did not implement APU registers:
-		a = newEmitterAt(e, 0x02_8293, true)
+		a = newEmitterAt(e, fastRomBank|0x02_8293, true)
 		//#_028293: JSR Underworld_LoadSongBankIfNeeded
 		a.JMP_abs_imm16_w(0x82BC)
 		//.exit
@@ -1119,7 +1178,7 @@ func setupAlttp(e *System) {
 
 	{
 		// patch out RebuildHUD:
-		a = newEmitterAt(e, 0x0D_FA88, true)
+		a = newEmitterAt(e, fastRomBank|0x0D_FA88, true)
 		//RebuildHUD_Keys:
 		//	#_0DFA88: STA.l $7EF36F
 		a.RTL()

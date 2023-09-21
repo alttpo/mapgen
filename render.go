@@ -561,6 +561,30 @@ func (room *RoomState) RenderSprites(g draw.Image) {
 			Dot:  fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)},
 		}).DrawString(fmt.Sprintf("%02x", et))
 	}
+
+	// draw Link:
+	{
+		x := read16(wram, 0x22)
+		y := read16(wram, 0x20)
+		var lx, ly int
+		if true {
+			lx = int(x) & 0x1FF
+			ly = int(y) & 0x1FF
+		} else {
+			coord := AbsToMapCoord(x, y, 0)
+			_, row, col := coord.RowCol()
+			lx = int(col << 3)
+			ly = int(row << 3)
+		}
+
+		green := image.NewUniform(color.RGBA{0, 255, 0, 255})
+		(&font.Drawer{
+			Dst:  g,
+			Src:  green,
+			Face: inconsolata.Bold8x16,
+			Dot:  fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)},
+		}).DrawString("LK")
+	}
 }
 
 func newBlankFrame() *image.Paletted {
