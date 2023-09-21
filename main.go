@@ -28,8 +28,6 @@ var (
 
 var (
 	roomsWithPitDamage map[Supertile]bool
-	supertiles         map[Supertile]*RoomState
-	supertilesLock     sync.Mutex
 )
 
 var (
@@ -253,7 +251,6 @@ func main() {
 
 	const entranceCount = 0x85
 	entranceGroups := make([]Entrance, entranceCount)
-	supertiles = make(map[Supertile]*RoomState, 0x128)
 
 	// iterate over entrances:
 	var entranceMin, entranceMax uint8
@@ -371,6 +368,7 @@ func processEntrance(
 	}
 
 	g.Rooms = make([]*RoomState, 0, 0x20)
+	g.Supertiles = make(map[Supertile]*RoomState, 0x128)
 
 	// build a stack (LIFO) of supertile entry points to visit:
 	lifo := make([]EntryPoint, 0, 0x100)
@@ -401,20 +399,20 @@ func processEntrance(
 		// create a room:
 		var room *RoomState
 
-		supertilesLock.Lock()
+		g.SupertilesLock.Lock()
 		var ok bool
-		if room, ok = supertiles[this]; ok {
-			//fmt.Printf("    reusing room %s\n", this)
-			//if eID != room.EntranceID {
-			//	panic(fmt.Errorf("conflicting entrances for room %s", st))
-			//}
+		if room, ok = g.Supertiles[this]; ok {
+			fmt.Printf("    reusing room %s\n", this)
+			if eID != room.Entrance.EntranceID {
+				panic(fmt.Errorf("conflicting entrances for room %s", this))
+			}
 		} else {
 			// create new room:
-			room = CreateRoom(this, e)
+			room = CreateRoom(g, this, e)
 			g.Rooms = append(g.Rooms, room)
-			supertiles[this] = room
+			g.Supertiles[this] = room
 		}
-		supertilesLock.Unlock()
+		g.SupertilesLock.Unlock()
 
 		// emulate loading the room:
 		room.Lock()
@@ -767,18 +765,21 @@ func processEntrance(
 		if supertileGifs || animateRoomDrawing || animateEnemyMovement {
 			wg.Add(1)
 			go func(r *RoomState) {
+				r.Lock()
+				defer r.Unlock()
+
 				fmt.Printf("entrance $%02x supertile %s draw start\n", g.EntranceID, r.Supertile)
 
 				if supertileGifs {
-					RenderGIF(&r.GIF, fmt.Sprintf("data/%03x.gif", uint16(r.Supertile)))
+					RenderGIF(&r.GIF, fmt.Sprintf("data/%03x.%02x.gif", uint16(r.Supertile), r.Entrance.EntranceID))
 				}
 
 				if animateRoomDrawing {
-					RenderGIF(&r.Animated, fmt.Sprintf("data/%03x.room.gif", uint16(r.Supertile)))
+					RenderGIF(&r.Animated, fmt.Sprintf("data/%03x.%02x.room.gif", uint16(r.Supertile), r.Entrance.EntranceID))
 				}
 
 				if animateEnemyMovement {
-					RenderGIF(&r.EnemyMovementGIF, fmt.Sprintf("data/%03x.enemy.gif", uint16(r.Supertile)))
+					RenderGIF(&r.EnemyMovementGIF, fmt.Sprintf("data/%03x.%02x.enemy.gif", uint16(r.Supertile), r.Entrance.EntranceID))
 				}
 
 				fmt.Printf("entrance $%02x supertile %s draw complete\n", g.EntranceID, r.Supertile)
@@ -1155,6 +1156,9 @@ type Entrance struct {
 	EntryCoord MapCoord
 
 	Rooms []*RoomState
+
+	Supertiles     map[Supertile]*RoomState
+	SupertilesLock sync.Mutex
 }
 
 func read16(b []byte, addr uint32) uint16 {

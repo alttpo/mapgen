@@ -40,6 +40,8 @@ type RoomState struct {
 
 	Supertile
 
+	Entrance *Entrance
+
 	IsLoaded bool
 
 	Rendered image.Image
@@ -86,13 +88,14 @@ type RoomState struct {
 	lifo        []ScanState
 }
 
-func CreateRoom(st Supertile, initEmu *System) (room *RoomState) {
+func CreateRoom(ent *Entrance, st Supertile, initEmu *System) (room *RoomState) {
 	var err error
 
 	//fmt.Printf("    creating room %s\n", st)
 
 	room = &RoomState{
 		Supertile:         st,
+		Entrance:          ent,
 		Rendered:          nil,
 		Hookshot:          make(map[MapCoord]byte, 0x2000),
 		TilesVisitedStar0: make(map[MapCoord]empty, 0x2000),
