@@ -835,7 +835,7 @@ func processEntrance(
 		}
 
 		// render VRAM BG tiles to a PNG:
-		if true {
+		if false {
 			cgram := (*(*[0x100]uint16)(unsafe.Pointer(&room.WRAM[0xC300])))[:]
 			pal := cgramToPalette(cgram)
 

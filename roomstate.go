@@ -661,7 +661,7 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 		// first frame of enemy movement GIF is static for 1 second:
 		{
 			pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
-			{
+			if false {
 				if err := exportPNG(fmt.Sprintf("data/%03x.%02x.bg1.0.png", uint16(room.Supertile), room.Entrance.EntranceID), bg1p[0]); err != nil {
 					panic(err)
 				}
@@ -693,13 +693,16 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 				fmt.Fprintln(os.Stderr, err)
 				break
 			}
+			//e.LoggerCPU = nil
 
 			// sanity check:
 			if supertileWram := read16(wram, 0xA0); supertileWram != uint16(room.Supertile) {
 				panic(fmt.Sprintf("%03x.%02x: supertile in wram does not match expected", uint16(room.Supertile), room.Entrance.EntranceID))
 			}
 
-			//e.LoggerCPU = nil
+			// update tile sets after NMI; e.g. animated tiles:
+			copy((&room.VRAMTileSet)[:], vram[0x4000:0x8000])
+			copy(tiles, wram[0x12000:0x14000])
 
 			{
 				pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
