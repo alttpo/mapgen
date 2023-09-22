@@ -297,12 +297,15 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 		ComposeToPaletted(frame, pal, bg1p, bg2p, addColor, halfColor)
 
 		delta := frame
+		dirty := false
 		disposal := byte(0)
 		if lastFrame != nil && optimizeGIFs {
-			delta = generateDeltaFrame(lastFrame, frame)
+			delta, dirty = generateDeltaFrame(lastFrame, frame)
 			disposal = gif.DisposalNone
 		}
 
+		// TODO
+		_ = dirty
 		room.Animated.Image = append(room.Animated.Image, delta)
 		room.Animated.Delay = append(room.Animated.Delay, frameDelay)
 		room.Animated.Disposal = append(room.Animated.Disposal, disposal)
@@ -311,7 +314,7 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 	}
 }
 
-func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted) {
+func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted, dirty bool) {
 	// make a special delta palette with 255 (never used) as transparent:
 	pal := make(color.Palette, len(curr.Palette))
 	copy(pal, curr.Palette)
@@ -320,6 +323,7 @@ func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted) {
 	pal[transparentIndex] = color.Transparent
 
 	delta = image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+	dirty = false
 	for y := 0; y < 512; y++ {
 		for x := 0; x < 512; x++ {
 			cp := prev.ColorIndexAt(x, y)
@@ -333,6 +337,7 @@ func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted) {
 
 			// use the current frame's color if it differs:
 			delta.SetColorIndex(x, y, cc)
+			dirty = true
 		}
 	}
 
@@ -519,20 +524,32 @@ func (room *RoomState) RenderSprites(g draw.Image) {
 
 	//black := image.NewUniform(color.RGBA{0, 0, 0, 255})
 	yellow := image.NewUniform(color.RGBA{255, 255, 0, 255})
+	red := image.NewUniform(color.RGBA{255, 48, 48, 255})
 
 	// draw sprites:
 	for i := uint32(0); i < 16; i++ {
-		st := read8(wram, 0x0DD0+i)
-		if st == 0 {
+		clr := yellow
+
+		// Initial AI state on load:
+		initialAIState := read8(room.WRAMAfterLoaded[:], 0x0DD0+i)
+		if initialAIState == 0 {
+			// nothing was ever here:
 			continue
 		}
 
-		et := read8(wram, 0x0E20+i)
-
+		// determine if in bounds:
 		yl, yh := read8(wram, 0x0D00+i), read8(wram, 0x0D20+i)
 		xl, xh := read8(wram, 0x0D10+i), read8(wram, 0x0D30+i)
 		y := uint16(yl) | uint16(yh)<<8
 		x := uint16(xl) | uint16(xh)<<8
+		if !room.IsAbsInBounds(x, y) {
+			continue
+		}
+
+		// AI state:
+		st := read8(wram, 0x0DD0+i)
+		// enemy type:
+		et := read8(wram, 0x0E20+i)
 
 		var lx, ly int
 		if true {
@@ -554,12 +571,25 @@ func (room *RoomState) RenderSprites(g draw.Image) {
 		//	row,
 		//)
 
+		if st == 0 {
+			// dead:
+			clr = red
+		}
+
 		(&font.Drawer{
 			Dst:  g,
-			Src:  yellow,
+			Src:  clr,
 			Face: inconsolata.Bold8x16,
 			Dot:  fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)},
 		}).DrawString(fmt.Sprintf("%02x", et))
+
+		if st == 0 {
+			// outline box:
+			draw.Draw(g, image.Rect(lx, ly, lx+16, ly+1), clr, image.Point{}, draw.Over)
+			draw.Draw(g, image.Rect(lx+16, ly, lx+16+1, ly+16), clr, image.Point{}, draw.Over)
+			draw.Draw(g, image.Rect(lx, ly+16, lx+16, ly+16+1), clr, image.Point{}, draw.Over)
+			draw.Draw(g, image.Rect(lx, ly, lx+1, ly+16), clr, image.Point{}, draw.Over)
+		}
 	}
 
 	// draw Link:

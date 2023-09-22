@@ -809,7 +809,7 @@ func processEntrance(
 
 	// render all supertiles found:
 	for _, room := range g.Rooms {
-		if supertileGifs || animateRoomDrawing || animateEnemyMovement {
+		if supertileGifs || animateRoomDrawing {
 			wg.Add(1)
 			go func(r *RoomState) {
 				r.Lock()
@@ -823,10 +823,6 @@ func processEntrance(
 
 				if animateRoomDrawing {
 					RenderGIF(&r.Animated, fmt.Sprintf("data/%03x.%02x.room.gif", uint16(r.Supertile), r.Entrance.EntranceID))
-				}
-
-				if animateEnemyMovement {
-					RenderGIF(&r.EnemyMovementGIF, fmt.Sprintf("data/%03x.%02x.enemy.gif", uint16(r.Supertile), r.Entrance.EntranceID))
 				}
 
 				fmt.Printf("entrance $%02x supertile %s draw complete\n", g.EntranceID, r.Supertile)

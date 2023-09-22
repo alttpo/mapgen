@@ -658,8 +658,8 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 			write16(wram, 0x20, linkY)
 		}
 
-		// first frame of enemy movement GIF is static for 1 second:
-		{
+		// first frame of enemy movement GIF:
+		if true {
 			pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
 			if false {
 				if err := exportPNG(fmt.Sprintf("data/%03x.%02x.bg1.0.png", uint16(room.Supertile), room.Entrance.EntranceID), bg1p[0]); err != nil {
@@ -680,7 +680,7 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 			room.RenderSprites(g)
 
 			room.EnemyMovementGIF.Image = append(room.EnemyMovementGIF.Image, g)
-			room.EnemyMovementGIF.Delay = append(room.EnemyMovementGIF.Delay, 100)
+			room.EnemyMovementGIF.Delay = append(room.EnemyMovementGIF.Delay, 20)
 			room.EnemyMovementGIF.Disposal = append(room.EnemyMovementGIF.Disposal, gif.DisposalNone)
 			room.EnemyMovementGIF.LoopCount = 0
 		}
@@ -711,18 +711,26 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 				room.RenderSprites(g)
 
 				delta := g
+				dirty := false
 				disposal := byte(0)
-				if optimizeGIFs {
+				if optimizeGIFs && room.EnemyMovementGIF.Image != nil {
 					lastFrame := room.EnemyMovementGIF.Image[len(room.EnemyMovementGIF.Image)-1]
-					delta = generateDeltaFrame(lastFrame, g)
+					delta, dirty = generateDeltaFrame(lastFrame, g)
 					disposal = gif.DisposalNone
 				}
 
-				room.EnemyMovementGIF.Image = append(room.EnemyMovementGIF.Image, delta)
-				room.EnemyMovementGIF.Delay = append(room.EnemyMovementGIF.Delay, 2)
-				room.EnemyMovementGIF.Disposal = append(room.EnemyMovementGIF.Disposal, disposal)
+				if !dirty && room.EnemyMovementGIF.Image != nil {
+					// just increment last frame's delay if nothing changed:
+					room.EnemyMovementGIF.Delay[len(room.EnemyMovementGIF.Delay)-1] += 2
+				} else {
+					room.EnemyMovementGIF.Image = append(room.EnemyMovementGIF.Image, delta)
+					room.EnemyMovementGIF.Delay = append(room.EnemyMovementGIF.Delay, 2)
+					room.EnemyMovementGIF.Disposal = append(room.EnemyMovementGIF.Disposal, disposal)
+				}
 			}
 		}
+
+		RenderGIF(&room.EnemyMovementGIF, fmt.Sprintf("data/%03x.%02x.enemy.gif", uint16(room.Supertile), room.Entrance.EntranceID))
 	}
 
 	//// dump enemy state again:
@@ -1800,4 +1808,26 @@ func (r *RoomState) HandleRoomTags() bool {
 	}
 
 	return false
+}
+
+func (room *RoomState) IsAbsInBounds(x uint16, y uint16) bool {
+	// add absolute position from supertile:
+	st := uint16(room.Supertile)
+	sx := (st & 0x0F) << 9
+	sy := (st & 0xF0) << 5
+	// add eg2 offset to sy if applicable:
+	sy += (st & 0x100) << 5
+	if x < sx {
+		return false
+	}
+	if x > sx+511 {
+		return false
+	}
+	if y < sy {
+		return false
+	}
+	if y > sy+511 {
+		return false
+	}
+	return true
 }
