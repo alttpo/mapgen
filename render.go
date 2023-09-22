@@ -286,12 +286,12 @@ func (room *RoomState) RenderAnimatedRoomDraw(frameDelay int) {
 		}
 
 		// switch everything but the first layer to have 0 as transparent:
-		palTransp := make(color.Palette, len(pal))
-		copy(palTransp, pal)
-		palTransp[0] = color.Transparent
-		bg1p[1].Palette = palTransp
-		bg2p[0].Palette = palTransp
-		bg2p[1].Palette = palTransp
+		//palTransp := make(color.Palette, len(pal))
+		//copy(palTransp, pal)
+		//palTransp[0] = color.Transparent
+		//bg1p[1].Palette = palTransp
+		//bg2p[0].Palette = palTransp
+		//bg2p[1].Palette = palTransp
 
 		frame := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
 		ComposeToPaletted(frame, pal, bg1p, bg2p, addColor, halfColor)

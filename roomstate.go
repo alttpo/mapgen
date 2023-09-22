@@ -661,6 +661,20 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 		// first frame of enemy movement GIF is static for 1 second:
 		{
 			pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
+			{
+				if err := exportPNG(fmt.Sprintf("data/%03x.%02x.bg1.0.png", uint16(room.Supertile), room.Entrance.EntranceID), bg1p[0]); err != nil {
+					panic(err)
+				}
+				if err := exportPNG(fmt.Sprintf("data/%03x.%02x.bg1.1.png", uint16(room.Supertile), room.Entrance.EntranceID), bg1p[1]); err != nil {
+					panic(err)
+				}
+				if err := exportPNG(fmt.Sprintf("data/%03x.%02x.bg2.0.png", uint16(room.Supertile), room.Entrance.EntranceID), bg2p[0]); err != nil {
+					panic(err)
+				}
+				if err := exportPNG(fmt.Sprintf("data/%03x.%02x.bg2.1.png", uint16(room.Supertile), room.Entrance.EntranceID), bg2p[1]); err != nil {
+					panic(err)
+				}
+			}
 			g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
 			ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
 			room.RenderSprites(g)

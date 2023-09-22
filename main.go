@@ -835,7 +835,7 @@ func processEntrance(
 		}
 
 		// render VRAM BG tiles to a PNG:
-		if false {
+		if true {
 			cgram := (*(*[0x100]uint16)(unsafe.Pointer(&room.WRAM[0xC300])))[:]
 			pal := cgramToPalette(cgram)
 
@@ -990,13 +990,19 @@ func setupAlttp(e *System) {
 		//a.JSL(fastRomBank | 0x0C_F03B)
 		a.Comment("Intro_CreateTextPointers#_028022")
 		a.JSL(fastRomBank | 0x02_8022)
-		a.Comment("DecompressFontGFX#_0EF572")
-		a.JSL(fastRomBank | 0x0E_F572)
 		a.Comment("Overworld_LoadAllPalettes_long#_02802A")
 		a.JSL(fastRomBank | 0x02_802A)
+		a.Comment("DecompressFontGFX#_0EF572")
+		a.JSL(fastRomBank | 0x0E_F572)
 
+		a.Comment("LoadDefaultGraphics#_00E310")
+		a.JSL(fastRomBank | 0x00_E310)
 		a.Comment("LoadDefaultTileTypes#_0FFD2A")
 		a.JSL(fastRomBank | 0x0F_FD2A)
+		//a.Comment("DecompressAnimatedUnderworldTiles#_00D377")
+		//a.JSL(fastRomBank | 0x00_D377)
+		//a.Comment("InitializeTilesets#_00E1DB")
+		//a.JSL(fastRomBank | 0x00_E1DB)
 
 		// general world state:
 		a.Comment("disable rain")
@@ -1034,6 +1040,16 @@ func setupAlttp(e *System) {
 		a.STZ_dp(0x11)
 		a.Comment("LoadUnderworldSupertile")
 		a.JSL(b02LoadUnderworldSupertilePC)
+		a.STZ_dp(0x11)
+
+		//a.Comment("check module=7, submodule!=f:")
+		//a.LDA_dp(0x10)
+		//a.CMP_imm8_b(0x07)
+		//a.BNE("done")
+		//a.LDA_dp(0x11)
+		//a.BEQ("done")
+		//a.Comment("clear submodule to avoid spotlight:")
+		//a.STZ_dp(0x11)
 
 		a.Label("updateVRAM")
 		// this code sets up the DMA transfer parameters for animated BG tiles:
@@ -1041,15 +1057,6 @@ func setupAlttp(e *System) {
 		a.JSR_abs(0x85FC)
 		a.Comment("NMI_DoUpdates")
 		a.JSR_abs(0x89E0) // NMI_DoUpdates
-
-		a.Comment("check module=7, submodule!=f:")
-		a.LDA_dp(0x10)
-		a.CMP_imm8_b(0x07)
-		a.BNE("done")
-		a.LDA_dp(0x11)
-		a.BEQ("done")
-		a.Comment("clear submodule to avoid spotlight:")
-		a.STZ_dp(0x11)
 
 		// WDM triggers an abort for values >= 10
 		donePC = a.Label("done")
