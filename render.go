@@ -531,11 +531,11 @@ func (room *RoomState) RenderSprites(g draw.Image) {
 		clr := yellow
 
 		// Initial AI state on load:
-		initialAIState := read8(room.WRAMAfterLoaded[:], 0x0DD0+i)
-		if initialAIState == 0 {
-			// nothing was ever here:
-			continue
-		}
+		//initialAIState := read8(room.WRAMAfterLoaded[:], 0x0DD0+i)
+		//if initialAIState == 0 {
+		//	// nothing was ever here:
+		//	continue
+		//}
 
 		// determine if in bounds:
 		yl, yh := read8(wram, 0x0D00+i), read8(wram, 0x0D20+i)
