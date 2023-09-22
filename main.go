@@ -986,8 +986,8 @@ func setupAlttp(e *System) {
 		a.SetBase(fastRomBank | 0x00_5000)
 		a.SEP(0x30)
 
-		//a.Comment("InitializeTriforceIntro#_0CF03B: sets up initial state")
-		//a.JSL(fastRomBank | 0x0C_F03B)
+		a.Comment("InitializeTriforceIntro#_0CF03B: sets up initial state")
+		a.JSL(fastRomBank | 0x0C_F03B)
 		a.Comment("Intro_CreateTextPointers#_028022")
 		a.JSL(fastRomBank | 0x02_8022)
 		a.Comment("Overworld_LoadAllPalettes_long#_02802A")
