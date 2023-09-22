@@ -389,7 +389,7 @@ func processEntrance(
 	fmt.Printf("entrance $%02x load start\n", eID)
 
 	// poke the entrance ID into our asm code:
-	e.HWIO.Dyn[setEntranceIDPC-0x5000] = eID
+	e.HWIO.Dyn[setEntranceIDPC&0xffff-0x5000] = eID
 
 	// load the entrance and draw the room:
 	if eID > 0 {
@@ -449,10 +449,10 @@ func processEntrance(
 		g.SupertilesLock.Lock()
 		var ok bool
 		if room, ok = g.Supertiles[this]; ok {
-			fmt.Printf("    reusing room %s\n", this)
-			if eID != room.Entrance.EntranceID {
-				panic(fmt.Errorf("conflicting entrances for room %s", this))
-			}
+			//fmt.Printf("    reusing room %s\n", this)
+			//if eID != room.Entrance.EntranceID {
+			//	panic(fmt.Errorf("conflicting entrances for room %s", this))
+			//}
 		} else {
 			// create new room:
 			room = CreateRoom(g, this, e)
