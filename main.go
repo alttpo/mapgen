@@ -287,6 +287,73 @@ func main() {
 
 	setupAlttp(&e)
 
+	{
+		// find Underworld_LoadHeader routine to check the RoomHeader pointer it uses
+		// analyze the overlaps of the room headers and mark invalid any overlapping values
+		// iterate through entrance IDs to determine dungeon IDs
+		// iterate through supertile links
+
+		// RoomHeader_RoomToPointer#_04F1E2
+		// RoomHeader_Room0000#_04F462
+
+		// #_01B5DC: LDA.l RoomHeader_RoomToPointer,X
+		if e.Bus.Read8(fastRomBank|0x01_b5dc) != 0xBF {
+			panic("unexpected opcode at #_01B5DC; expecting `LDA.l $nnnnnn,X`")
+		}
+		roomHeaderTableLong := e.Bus.Read24(fastRomBank | 0x01_b5dc + 1)
+		fmt.Printf("table: %06x\n", roomHeaderTableLong)
+
+		aliases := map[uint16]uint16{}
+		roomHeaderPointers := [0x140]uint16{}
+		for i := uint16(0); i < 0x140; i++ {
+			roomHeaderPointers[i] = e.Bus.Read16(roomHeaderTableLong + uint32(i)<<1)
+			fmt.Printf("[%03x]: %04x\n", i, roomHeaderPointers[i])
+
+			// find our alias:
+			for j := uint16(0); j < i; j++ {
+				if roomHeaderPointers[i] == roomHeaderPointers[j] {
+					aliases[i] = j
+					fmt.Printf("  alias for %03x\n", j)
+					break
+				}
+			}
+		}
+
+		// make a map of which room index owns which bytes in the table (earliest room ID "wins"):
+		addrUsed := map[uint16]uint16{}
+		for i := uint16(0); i < 0x140; i++ {
+			// skip overlap analysis for aliased pointers:
+			if _, ok := aliases[i]; ok {
+				continue
+			}
+
+			for j := uint16(0); j < 14; j++ {
+				p := roomHeaderPointers[i] + j
+				addrUsed[p] = i
+			}
+		}
+
+		roomHeaders := [0x140][14]uint8{}
+		for i := uint16(0); i < 0x140; i++ {
+			owner := i
+			if alias, ok := aliases[owner]; ok {
+				owner = alias
+			}
+			for j := uint16(0); j < 14; j++ {
+				p := roomHeaderPointers[owner] + j
+				if addrUsed[p] == owner {
+					roomHeaders[i][j] = e.Bus.Read8(roomHeaderTableLong&0xFF_0000 | uint32(p))
+				}
+			}
+		}
+
+		for i := uint16(0); i < 0x140; i++ {
+			fmt.Printf("[%03x]: %#v\n", i, roomHeaders[i])
+		}
+
+		os.Exit(0)
+	}
+
 	//RoomsWithPitDamage#_00990C [0x70]uint16
 	roomsWithPitDamage = make(map[Supertile]bool, 0x128)
 	for i := Supertile(0); i < 0x128; i++ {
