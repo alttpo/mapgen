@@ -39,3 +39,12 @@ func (s Supertile) MoveBy(dir Direction) (sn Supertile, sd Direction, ok bool) {
 
 	return
 }
+
+func (s Supertile) AbsTopLeft() (sx uint16, sy uint16) {
+	st := uint16(s)
+	sx = (st & 0x0F) << 9
+	sy = (st & 0xF0) << 5
+	// add eg2 offset to sy if applicable:
+	sy += (st & 0x100) << 5
+	return
+}

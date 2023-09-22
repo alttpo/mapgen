@@ -124,7 +124,7 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 
 	st := room.Supertile
 
-	namePrefix := fmt.Sprintf("e%02x.t%03x", room.Entrance.EntranceID, uint16(st))
+	namePrefix := fmt.Sprintf("t%03x.e%02x", uint16(st), room.Entrance.EntranceID)
 
 	e := &room.e
 	wram := (e.WRAM)[:]
@@ -634,12 +634,15 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 
 	room.RenderAnimatedRoomDraw(animateRoomDrawingDelay)
 
+	room.HandleRoomTags()
+
 	f := len(room.GIF.Delay) - 1
 	if f >= 0 {
 		room.GIF.Delay[f] += 200
 	}
 
 	if enemyMovementFrames > 0 {
+		isInteresting := false
 		spriteDead := [16]bool{}
 		spriteID := [16]uint8{}
 		for j := 0; j < 16; j++ {
@@ -647,8 +650,10 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 			spriteID[j] = read8(wram, uint32(0x0E20+j))
 		}
 
-		// place Link at the entrypoint:
+		// reset WRAM to initial supertile load:
 		room.WRAM = room.WRAMAfterLoaded
+
+		// place Link at the entrypoint:
 		{
 			linkX, linkY := ep.Point.ToAbsCoord(st)
 			// nudge link within visible bounds:
@@ -703,74 +708,106 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 		}
 
 		// run for N frames and render each frame into a GIF:
+		sx, sy := room.Supertile.AbsTopLeft()
+		fmt.Printf(
+			"t%03x: abs=(%04x, %04x), bg1=(%04x,%04x), bg2=(%04x,%04x)\n",
+			uint16(room.Supertile),
+			sx,
+			sy,
+			read16(wram, 0xE0),
+			read16(wram, 0xE6),
+			read16(wram, 0xE2),
+			read16(wram, 0xE8),
+		)
+
+	movement:
 		for i := 0; i < enemyMovementFrames; i++ {
 			//fmt.Println("FRAME")
 			//e.LoggerCPU = os.Stdout
-			if err := e.ExecAtUntil(b00RunSingleFramePC, 0, 0x200000); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				break
-			}
-			//e.LoggerCPU = nil
+			// move camera to all four quadrants to get all enemies moving:
+			for j := 0; j < 4; j++ {
+				// BG1H
+				write16(wram, 0xE0, uint16(j&1)<<8+sx)
+				// BG2H
+				write16(wram, 0xE2, uint16(j&1)<<8+sx)
+				// BG1V
+				write16(wram, 0xE6, uint16(j&2)<<7+sy)
+				// BG2V
+				write16(wram, 0xE8, uint16(j&2)<<7+sy)
 
-			// sanity check:
-			if supertileWram := read16(wram, 0xA0); supertileWram != uint16(room.Supertile) {
-				panic(fmt.Sprintf("%s: supertile in wram does not match expected", namePrefix))
-			}
+				if err := e.ExecAtUntil(b00RunSingleFramePC, 0, 0x200000); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					break movement
+				}
+				//e.LoggerCPU = nil
 
-			// update tile sets after NMI; e.g. animated tiles:
-			copy((&room.VRAMTileSet)[:], vram[0x4000:0x8000])
-			copy(tiles, wram[0x12000:0x14000])
-
-			// check for any killed sprites:
-			for j := 0; j < 16; j++ {
-				if spriteDead[j] {
-					continue
+				// sanity check:
+				if supertileWram := read16(wram, 0xA0); supertileWram != uint16(room.Supertile) {
+					panic(fmt.Sprintf("%s: supertile in wram does not match expected", namePrefix))
 				}
 
-				sDead := read8(wram, uint32(0x0DD0+j)) == 0
-				if sDead {
-					sID := read8(wram, uint32(0x0E20+j))
-					fmt.Fprintf(os.Stderr, "%s: sprite %02x killed on frame %3d\n", namePrefix, sID, i)
-					spriteDead[j] = true
-				}
-			}
+				// update tile sets after NMI; e.g. animated tiles:
+				copy((&room.VRAMTileSet)[:], vram[0x4000:0x8000])
+				copy(tiles, wram[0x12000:0x14000])
 
-			{
-				pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
-				g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
-				ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
-				room.RenderSprites(g)
+				// check for any killed sprites:
+				for j := 0; j < 16; j++ {
+					if spriteDead[j] {
+						continue
+					}
 
-				delta := g
-				dirty := false
-				disposal := byte(0)
-				if optimizeGIFs && room.EnemyMovementGIF.Image != nil {
-					delta, dirty = generateDeltaFrame(lastFrame, g)
-					//_ = exportPNG(fmt.Sprintf("data/%s.fr%03d.png", namePrefix, i), delta)
-					disposal = gif.DisposalNone
+					sDead := read8(wram, uint32(0x0DD0+j)) == 0
+					if sDead {
+						sID := read8(wram, uint32(0x0E20+j))
+						fmt.Fprintf(os.Stderr, "%s: sprite %02x killed on frame %3d\n", namePrefix, sID, i)
+						if sID == 0x9b {
+							isInteresting = true
+						}
+						spriteDead[j] = true
+					}
 				}
 
-				if !dirty && room.EnemyMovementGIF.Image != nil {
-					// just increment last frame's delay if nothing changed:
-					room.EnemyMovementGIF.Delay[len(room.EnemyMovementGIF.Delay)-1] += 2
-				} else {
-					room.EnemyMovementGIF.Image = append(room.EnemyMovementGIF.Image, delta)
-					room.EnemyMovementGIF.Delay = append(room.EnemyMovementGIF.Delay, 2)
-					room.EnemyMovementGIF.Disposal = append(room.EnemyMovementGIF.Disposal, disposal)
+				{
+					pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
+					g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+					ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
+					room.RenderSprites(g)
+
+					delta := g
+					dirty := false
+					disposal := byte(0)
+					if optimizeGIFs && room.EnemyMovementGIF.Image != nil {
+						delta, dirty = generateDeltaFrame(lastFrame, g)
+						//_ = exportPNG(fmt.Sprintf("data/%s.fr%03d.png", namePrefix, i), delta)
+						disposal = gif.DisposalNone
+					}
+
+					if !dirty && room.EnemyMovementGIF.Image != nil {
+						// just increment last frame's delay if nothing changed:
+						room.EnemyMovementGIF.Delay[len(room.EnemyMovementGIF.Delay)-1] += 2
+					} else {
+						room.EnemyMovementGIF.Image = append(room.EnemyMovementGIF.Image, delta)
+						room.EnemyMovementGIF.Delay = append(room.EnemyMovementGIF.Delay, 2)
+						room.EnemyMovementGIF.Disposal = append(room.EnemyMovementGIF.Disposal, disposal)
+					}
+					lastFrame = g
 				}
-				lastFrame = g
 			}
 		}
 
 		fmt.Printf("rendered  %s\n", gifName)
-		RenderGIF(&room.EnemyMovementGIF, gifName)
-		fmt.Printf("wrote     %s\n", gifName)
+		if isInteresting {
+			RenderGIF(&room.EnemyMovementGIF, gifName)
+			fmt.Printf("wrote     %s\n", gifName)
+		}
+
+		// reset WRAM:
+		room.WRAM = room.WRAMAfterLoaded
 	}
 
-	//// dump enemy state again:
-	//fmt.Println(hex.Dump(wram[0x0D00:0x0FA0]))
-
-	//room.HandleRoomTags()
+	// update tile sets after NMI; e.g. animated tiles:
+	copy((&room.VRAMTileSet)[:], vram[0x4000:0x8000])
+	copy(tiles, wram[0x12000:0x14000])
 
 	//ioutil.WriteFile(fmt.Sprintf("data/%s.cmap", namePrefix), (&room.Tiles)[:], 0644)
 
@@ -1846,11 +1883,7 @@ func (r *RoomState) HandleRoomTags() bool {
 
 func (room *RoomState) IsAbsInBounds(x uint16, y uint16) bool {
 	// add absolute position from supertile:
-	st := uint16(room.Supertile)
-	sx := (st & 0x0F) << 9
-	sy := (st & 0xF0) << 5
-	// add eg2 offset to sy if applicable:
-	sy += (st & 0x100) << 5
+	sx, sy := room.Supertile.AbsTopLeft()
 	if x < sx {
 		return false
 	}
