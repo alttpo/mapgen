@@ -124,6 +124,8 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 
 	st := room.Supertile
 
+	namePrefix := fmt.Sprintf("e%02x.t%03x", room.Entrance.EntranceID, uint16(st))
+
 	e := &room.e
 	wram := (e.WRAM)[:]
 	vram := (e.VRAM)[:]
@@ -635,7 +637,7 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 		room.GIF.Delay[f] += 200
 	}
 
-	if animateEnemyMovement {
+	if enemyMovementFrames > 0 {
 		// place Link at the entrypoint:
 		room.WRAM = room.WRAMAfterLoaded
 		{
@@ -658,8 +660,12 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 			write16(wram, 0x20, linkY)
 		}
 
+		gifName := fmt.Sprintf("data/%s.move.gif", namePrefix)
+		fmt.Printf("rendering %s\n", gifName)
+
 		// first frame of enemy movement GIF:
-		if true {
+		var lastFrame *image.Paletted
+		{
 			pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
 			if false {
 				if err := exportPNG(fmt.Sprintf("data/%03x.%02x.bg1.0.png", uint16(room.Supertile), room.Entrance.EntranceID), bg1p[0]); err != nil {
@@ -679,14 +685,16 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 			ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
 			room.RenderSprites(g)
 
+			lastFrame = g
 			room.EnemyMovementGIF.Image = append(room.EnemyMovementGIF.Image, g)
 			room.EnemyMovementGIF.Delay = append(room.EnemyMovementGIF.Delay, 20)
 			room.EnemyMovementGIF.Disposal = append(room.EnemyMovementGIF.Disposal, gif.DisposalNone)
 			room.EnemyMovementGIF.LoopCount = 0
+			room.EnemyMovementGIF.BackgroundIndex = 0
 		}
 
-		// run for a few seconds to see what happens:
-		for i := 0; i < 240; i++ {
+		// run for N frames and render each frame into a GIF:
+		for i := 0; i < enemyMovementFrames; i++ {
 			//fmt.Println("FRAME")
 			//e.LoggerCPU = os.Stdout
 			if err := e.ExecAtUntil(b00RunSingleFramePC, 0, 0x200000); err != nil {
@@ -697,7 +705,7 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 
 			// sanity check:
 			if supertileWram := read16(wram, 0xA0); supertileWram != uint16(room.Supertile) {
-				panic(fmt.Sprintf("%03x.%02x: supertile in wram does not match expected", uint16(room.Supertile), room.Entrance.EntranceID))
+				panic(fmt.Sprintf("%s: supertile in wram does not match expected", namePrefix))
 			}
 
 			// update tile sets after NMI; e.g. animated tiles:
@@ -714,8 +722,8 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 				dirty := false
 				disposal := byte(0)
 				if optimizeGIFs && room.EnemyMovementGIF.Image != nil {
-					lastFrame := room.EnemyMovementGIF.Image[len(room.EnemyMovementGIF.Image)-1]
 					delta, dirty = generateDeltaFrame(lastFrame, g)
+					//_ = exportPNG(fmt.Sprintf("data/%s.fr%03d.png", namePrefix, i), delta)
 					disposal = gif.DisposalNone
 				}
 
@@ -727,10 +735,13 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 					room.EnemyMovementGIF.Delay = append(room.EnemyMovementGIF.Delay, 2)
 					room.EnemyMovementGIF.Disposal = append(room.EnemyMovementGIF.Disposal, disposal)
 				}
+				lastFrame = g
 			}
 		}
 
-		RenderGIF(&room.EnemyMovementGIF, fmt.Sprintf("data/%03x.%02x.enemy.gif", uint16(room.Supertile), room.Entrance.EntranceID))
+		fmt.Printf("rendered  %s\n", gifName)
+		RenderGIF(&room.EnemyMovementGIF, gifName)
+		fmt.Printf("wrote     %s\n", gifName)
 	}
 
 	//// dump enemy state again:
@@ -738,7 +749,7 @@ func (room *RoomState) Init(ep EntryPoint) (err error) {
 
 	//room.HandleRoomTags()
 
-	//ioutil.WriteFile(fmt.Sprintf("data/%03X.cmap", uint16(st)), (&room.Tiles)[:], 0644)
+	//ioutil.WriteFile(fmt.Sprintf("data/%s.cmap", namePrefix), (&room.Tiles)[:], 0644)
 
 	room.IsLoaded = true
 

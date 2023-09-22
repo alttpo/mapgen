@@ -39,7 +39,7 @@ var (
 	supertileGifs            bool
 	animateRoomDrawing       bool
 	animateRoomDrawingDelay  int
-	animateEnemyMovement     bool
+	enemyMovementFrames      int
 	drawRoomPNGs             bool
 	drawBGLayerPNGs          bool
 	drawEG1                  bool
@@ -192,6 +192,7 @@ var entranceSupertiles = map[uint8][]uint16{
 var fastRomBank uint32 = 0
 
 func main() {
+	entranceMinStr, entranceMaxStr := "", ""
 	flag.BoolVar(&optimizeGIFs, "optimize", true, "optimize GIFs for size with delta frames")
 	flag.BoolVar(&outputEntranceSupertiles, "entrancemap", false, "dump entrance-supertile map to stdout")
 	flag.BoolVar(&drawRoomPNGs, "roompngs", false, "create individual room PNGs")
@@ -208,7 +209,9 @@ func main() {
 	flag.BoolVar(&supertileGifs, "gifs", false, "render room GIFs")
 	flag.BoolVar(&animateRoomDrawing, "animate", false, "render animated room drawing GIFs")
 	flag.IntVar(&animateRoomDrawingDelay, "animdelay", 15, "room drawing GIF frame delay")
-	flag.BoolVar(&animateEnemyMovement, "enemygifs", false, "render animated GIF of enemy movement")
+	flag.IntVar(&enemyMovementFrames, "movementframes", 0, "render N frames in animated GIF of enemy movement after room load")
+	flag.StringVar(&entranceMinStr, "entmin", "0", "entrance ID range minimum (hex)")
+	flag.StringVar(&entranceMaxStr, "entmax", "84", "entrance ID range maximum (hex)")
 	flag.Parse()
 
 	var err error
@@ -298,32 +301,33 @@ func main() {
 
 	// iterate over entrances:
 	var entranceMin, entranceMax uint8
-	if len(args) >= 2 {
-		var entranceMin64 uint64
-		entranceMin64, err = strconv.ParseUint(args[0], 16, 8)
-		if err != nil {
-			entranceMin64 = 0
-		}
-		entranceMin = uint8(entranceMin64)
 
-		var entranceMax64 uint64
-		entranceMax64, err = strconv.ParseUint(args[1], 16, 8)
-		if err != nil {
-			entranceMax64 = entranceCount - 1
-		}
-		entranceMax = uint8(entranceMax64)
+	var entranceMin64 uint64
+	entranceMin64, err = strconv.ParseUint(entranceMinStr, 16, 8)
+	if err != nil {
+		entranceMin64 = 0
+	}
+	entranceMin = uint8(entranceMin64)
 
-		args = args[2:]
+	var entranceMax64 uint64
+	entranceMax64, err = strconv.ParseUint(entranceMaxStr, 16, 8)
+	if err != nil {
+		entranceMax64 = entranceCount - 1
+	}
+	entranceMax = uint8(entranceMax64)
 
-		if entranceMax < entranceMin {
-			entranceMin, entranceMax = entranceMax, entranceMin
-		}
-	} else {
-		entranceMin, entranceMax = uint8(0), uint8(entranceCount-1)
+	if entranceMax < entranceMin {
+		entranceMin, entranceMax = entranceMax, entranceMin
+	}
+
+	if entranceMin > entranceCount-1 {
+		entranceMin = entranceCount - 1
+	}
+	if entranceMax > entranceCount-1 {
+		entranceMax = entranceCount - 1
 	}
 
 	//entranceMin, entranceMax := uint8(0), uint8(entranceCount-1)
-	//entranceMin, entranceMax := uint8(0x4F), uint8(0x4F)
 
 	wg := sync.WaitGroup{}
 	for eID := entranceMin; eID <= entranceMax; eID++ {
