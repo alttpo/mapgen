@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"os"
 	"slices"
+	"unsafe"
 )
 
 func reachabilityAnalysis(initEmu *System) (err error) {
@@ -171,9 +172,13 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 			//e.LoggerCPU = nil
 
 			tiles := wram[0x12000:0x14000]
-			//bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x2000])))[:]
-			//bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x4000])))[:]
-			_ = os.WriteFile(fmt.Sprintf("data/t%03x.map", st16), tiles, 0644)
+			_ = os.WriteFile(fmt.Sprintf("data/t%03x.til.map", st16), tiles, 0644)
+			{
+				bg1wram := (*(*[0x2000]uint8)(unsafe.Pointer(&wram[0x2000])))[:]
+				_ = os.WriteFile(fmt.Sprintf("data/t%03x.bg1.map", st16), bg1wram, 0644)
+				bg2wram := (*(*[0x2000]uint8)(unsafe.Pointer(&wram[0x4000])))[:]
+				_ = os.WriteFile(fmt.Sprintf("data/t%03x.bg2.map", st16), bg2wram, 0644)
+			}
 
 			// render to EG map:
 			{
@@ -193,6 +198,17 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 					addColor,
 					halfColor,
 				)
+				blankFrame := newBlankFrame()
+				{
+					bg1 := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+					ComposeToPaletted(bg1, pal, bg1p, [2]*image.Paletted{blankFrame, blankFrame}, addColor, halfColor)
+					_ = exportPNG(fmt.Sprintf("data/t%03x.bg1.png", st16), bg1)
+				}
+				{
+					bg2 := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+					ComposeToPaletted(bg2, pal, [2]*image.Paletted{blankFrame, blankFrame}, bg2p, addColor, halfColor)
+					_ = exportPNG(fmt.Sprintf("data/t%03x.bg2.png", st16), bg2)
+				}
 			}
 
 			// check doors to neighboring supertiles:
@@ -245,6 +261,43 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 				// push neighbor onto supertile stack:
 				dungeon.Stack = append(dungeon.Stack, dest)
 			}
+
+			// check open pathways on edges:
+			{
+				// open paths are 00s enclosed by 02s or 04s on either side of the path
+
+				// south edge:
+				if findWalkwayHoriz(tiles, 0x0fc0) || findWalkwayHoriz(tiles, 0x1fc0) {
+					if dest, _, ok := st.MoveBy(DirSouth); ok {
+						// push neighbor onto supertile stack:
+						dungeon.Stack = append(dungeon.Stack, dest)
+					}
+				}
+
+				// north edge:
+				if findWalkwayHoriz(tiles, 0x0000) || findWalkwayHoriz(tiles, 0x1000) {
+					if dest, _, ok := st.MoveBy(DirNorth); ok {
+						// push neighbor onto supertile stack:
+						dungeon.Stack = append(dungeon.Stack, dest)
+					}
+				}
+
+				// west edge:
+				if findWalkwayVert(tiles, 0x0000) || findWalkwayVert(tiles, 0x1000) {
+					if dest, _, ok := st.MoveBy(DirWest); ok {
+						// push neighbor onto supertile stack:
+						dungeon.Stack = append(dungeon.Stack, dest)
+					}
+				}
+
+				// east edge:
+				if findWalkwayVert(tiles, 0x003f) || findWalkwayVert(tiles, 0x103f) {
+					if dest, _, ok := st.MoveBy(DirEast); ok {
+						// push neighbor onto supertile stack:
+						dungeon.Stack = append(dungeon.Stack, dest)
+					}
+				}
+			}
 		}
 
 		fmt.Printf("d[%02x]: %#v\n", dungeon.DungeonID, dungeon.Supertiles)
@@ -286,5 +339,67 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 	if err = exportPNG(fmt.Sprintf("data/%s.png", "eg"), all); err != nil {
 		panic(err)
 	}
+	return
+}
+
+func findWalkwayHoriz(tiles []uint8, offs uint16) (edgeFound bool) {
+	edgeFound = false
+
+	for x := uint16(0); x < 0x3F; {
+		// bottom edge:
+		t := tiles[offs+x]
+		if t == 0x02 || t == 0x04 {
+			x++
+			t = tiles[offs+x]
+			if t == 0 {
+				// scan until see the same boundary tile:
+				x++
+				for x < 0x40 {
+					t := tiles[offs+x]
+					x++
+					if t == 0x02 || t == 0x04 {
+						edgeFound = true
+						return
+					} else if t != 0 {
+						break
+					}
+				}
+			}
+		} else {
+			x++
+		}
+	}
+
+	return
+}
+
+func findWalkwayVert(tiles []uint8, offs uint16) (edgeFound bool) {
+	edgeFound = false
+
+	for y := uint16(0); y < 0x3F; {
+		// bottom edge:
+		t := tiles[offs+y<<6]
+		if t == 0x02 || t == 0x04 {
+			y++
+			t = tiles[offs+y<<6]
+			if t == 0 {
+				// scan until see the same boundary tile:
+				y++
+				for y < 0x40 {
+					t := tiles[offs+y<<6]
+					y++
+					if t == 0x02 || t == 0x04 {
+						edgeFound = true
+						return
+					} else if t != 0 {
+						break
+					}
+				}
+			}
+		} else {
+			y++
+		}
+	}
+
 	return
 }
