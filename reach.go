@@ -172,8 +172,9 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 			//e.LoggerCPU = nil
 
 			tiles := wram[0x12000:0x14000]
-			_ = os.WriteFile(fmt.Sprintf("data/t%03x.til.map", st16), tiles, 0644)
-			{
+			if false {
+				// export tilemaps:
+				_ = os.WriteFile(fmt.Sprintf("data/t%03x.til.map", st16), tiles, 0644)
 				bg1wram := (*(*[0x2000]uint8)(unsafe.Pointer(&wram[0x2000])))[:]
 				_ = os.WriteFile(fmt.Sprintf("data/t%03x.bg1.map", st16), bg1wram, 0644)
 				bg2wram := (*(*[0x2000]uint8)(unsafe.Pointer(&wram[0x4000])))[:]
@@ -198,16 +199,20 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 					addColor,
 					halfColor,
 				)
-				blankFrame := newBlankFrame()
-				{
-					bg1 := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
-					ComposeToPaletted(bg1, pal, bg1p, [2]*image.Paletted{blankFrame, blankFrame}, addColor, halfColor)
-					_ = exportPNG(fmt.Sprintf("data/t%03x.bg1.png", st16), bg1)
-				}
-				{
-					bg2 := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
-					ComposeToPaletted(bg2, pal, [2]*image.Paletted{blankFrame, blankFrame}, bg2p, addColor, halfColor)
-					_ = exportPNG(fmt.Sprintf("data/t%03x.bg2.png", st16), bg2)
+
+				if drawBGLayerPNGs {
+					// render bg1 png, bg2 png:
+					blankFrame := newBlankFrame()
+					{
+						bg1 := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+						ComposeToPaletted(bg1, pal, bg1p, [2]*image.Paletted{blankFrame, blankFrame}, addColor, halfColor)
+						_ = exportPNG(fmt.Sprintf("data/t%03x.bg1.png", st16), bg1)
+					}
+					{
+						bg2 := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+						ComposeToPaletted(bg2, pal, [2]*image.Paletted{blankFrame, blankFrame}, bg2p, addColor, halfColor)
+						_ = exportPNG(fmt.Sprintf("data/t%03x.bg2.png", st16), bg2)
+					}
 				}
 			}
 
@@ -302,6 +307,8 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 
 		fmt.Printf("d[%02x]: %#v\n", dungeon.DungeonID, dungeon.Supertiles)
 	}
+
+	fmt.Printf("%#v\n", dungeons)
 
 	if drawNumbers {
 		black := image.NewUniform(color.RGBA{0, 0, 0, 255})
