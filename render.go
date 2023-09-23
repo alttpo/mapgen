@@ -518,10 +518,10 @@ func renderBGLayers(wramArray *WRAMArray, tileset []uint8) (
 	n0414 := read8(wram, 0x0414)
 	addColor = n0414 == 0x07
 	halfColor = n0414 == 0x04
-	//flip := n0414 == 0x03
+	flip := n0414 == 0x03
 
 	// swap bg1 and bg2 if color math is involved:
-	if !addColor && !halfColor {
+	if !addColor && !halfColor && !flip {
 		bg1p, bg2p = bg2p, bg1p
 	}
 
