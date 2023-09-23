@@ -32,12 +32,12 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 		panic("unexpected opcode at #_01B5DC; expecting `LDA.l $nnnnnn,X`")
 	}
 	roomHeaderTableLong := e.Bus.Read24(fastRomBank | 0x01_b5dc + 1)
-	//fmt.Printf("table: %06x\n", roomHeaderTableLong)
+	fmt.Printf("roomTable: %06x\n", roomHeaderTableLong)
 
 	roomHeaderPointers := [0x140]uint16{}
 	for i := uint16(0); i < 0x140; i++ {
 		roomHeaderPointers[i] = e.Bus.Read16(roomHeaderTableLong + uint32(i)<<1)
-		//fmt.Printf("[%03x]: %04x\n", i, roomHeaderPointers[i])
+		fmt.Printf("room[%03x]: %04x\n", i, roomHeaderPointers[i])
 	}
 
 	// sort pointers in ascending order:
@@ -59,7 +59,7 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 		for j := uint16(0); j < 14; j++ {
 			p := roomHeaderPointers[i] + j
 			if addrOwner[p] == roomHeaderPointers[i] {
-				roomHeaders[i][j] = e.Bus.Read8(roomHeaderTableLong&0xFF_0000 | uint32(p))
+				roomHeaders[i][j] = e.Bus.Read8(roomHeaderTableLong&0xff_0000 | uint32(p))
 			}
 		}
 	}
@@ -67,8 +67,6 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 	for i := uint16(0); i < 0x128; i++ {
 		fmt.Printf("[%03x]: %#v\n", i, roomHeaders[i])
 	}
-
-	//os.Exit(0)
 
 	wram := (e.WRAM)[:]
 
