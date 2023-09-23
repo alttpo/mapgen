@@ -157,7 +157,7 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 			//e.LoggerCPU = nil
 
 			tiles := wram[0x12000:0x14000]
-			if false {
+			if true {
 				// export tilemaps:
 				_ = os.WriteFile(fmt.Sprintf("data/t%03x.til.map", st16), tiles, 0644)
 				bg1wram := (*(*[0x2000]uint8)(unsafe.Pointer(&wram[0x2000])))[:]
@@ -201,23 +201,35 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 				}
 			}
 
-			// follow supertile links to WARP, STAIR0, STAIR1, STAIR2, STAIR3:
-			linkType := [5]string{"warp", "stair0", "stair1", "stair2", "stair3"}
-			for j := 9; j < 14; j++ {
-				dest := uint16(roomHeaders[st16][j]) | st16&0x100
-				if dest == 0 {
-					continue
-				}
-
-				// make sure we haven't already scanned the supertile:
-				if _, ok := dungeon.ContainsSupertile[dest]; ok {
-					continue
-				}
-
-				// add it to the stack to be scanned for links:
-				fmt.Printf("    %s -> %v\n", linkType[j-9], Supertile(dest))
-				dungeon.Stack = append(dungeon.Stack, Supertile(dest))
+			exitType := [5]string{"warp", "stair0", "stair1", "stair2", "stair3"}
+			exitST := [5]Supertile{
+				Supertile(uint16(read8(wram, 0xC000)) | st16&0x100),
+				Supertile(uint16(read8(wram, 0xC001)) | st16&0x100),
+				Supertile(uint16(read8(wram, 0xC002)) | st16&0x100),
+				Supertile(uint16(read8(wram, 0xC003)) | st16&0x100),
+				Supertile(uint16(read8(wram, 0xC004)) | st16&0x100),
 			}
+			exitUsed := [5]bool{}
+			if false {
+				// follow supertile links to WARP, STAIR0, STAIR1, STAIR2, STAIR3:
+				for j := 9; j < 14; j++ {
+					dest := uint16(roomHeaders[st16][j]) | st16&0x100
+					if dest == 0 {
+						continue
+					}
+
+					// make sure we haven't already scanned the supertile:
+					if _, ok := dungeon.ContainsSupertile[dest]; ok {
+						continue
+					}
+
+					// add it to the stack to be scanned for links:
+					fmt.Printf("    %s -> %v\n", exitType[j-9], Supertile(dest))
+					dungeon.Stack = append(dungeon.Stack, Supertile(dest))
+				}
+			}
+
+			pitDamages := roomsWithPitDamage[st]
 
 			// check doors to neighboring supertiles:
 			for m := 0; m < 16; m++ {
@@ -235,7 +247,7 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 				}
 				doorTile := tiles[door.Pos+0x41]
 
-				//fmt.Printf("    door: %v; t = %02x\n", door, doorTile)
+				fmt.Printf("    door: %v; t = %02x\n", door, doorTile)
 
 				// check if the door is on the edge:
 				isDoorEdge, edgeDir, _, _ := door.Pos.IsDoorEdge()
@@ -250,6 +262,15 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 				}
 				if doorTile == 0x89 {
 					// east/west exit:
+					if door.Dir == DirWest && !exitUsed[3] {
+						fmt.Printf("    door-transport: %v -> %v\n", door.Dir, exitST[3])
+						dungeon.Stack = append(dungeon.Stack, exitST[3])
+						exitUsed[3] = true
+					} else if door.Dir == DirEast && !exitUsed[4] {
+						fmt.Printf("    door-transport: %v -> %v\n", door.Dir, exitST[4])
+						dungeon.Stack = append(dungeon.Stack, exitST[4])
+						exitUsed[4] = true
+					}
 					continue
 				}
 
@@ -270,6 +291,59 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 				// push neighbor onto supertile stack:
 				fmt.Printf("    door: %v -> %v\n", dir, dest)
 				dungeon.Stack = append(dungeon.Stack, dest)
+			}
+
+			// check tilemap for special exits, e.g. stairs, pits, bombable floors:
+			{
+				for ta := uint16(0); ta < 0x2000; ta++ {
+					t := tiles[ta]
+					if !exitUsed[0] {
+						if !pitDamages {
+							// pit 0x20, bombable floor 0x62:
+							if t == 0x20 || t == 0x62 {
+								fmt.Printf("    pit: %v\n", exitST[0])
+								dungeon.Stack = append(dungeon.Stack, exitST[0])
+								exitUsed[0] = true
+							}
+						} else if t == 0x4B {
+							// warp tile:
+							fmt.Printf("    warp: %v\n", exitST[0])
+							dungeon.Stack = append(dungeon.Stack, exitST[0])
+							exitUsed[0] = true
+						}
+					}
+
+					if t >= 0x30 && t <= 0x33 {
+						ex := t - 0x30
+						// stairs:
+						if !exitUsed[1+ex] {
+							fmt.Printf("    stairs%d: %v\n", ex, exitST[1+ex])
+							dungeon.Stack = append(dungeon.Stack, exitST[1+ex])
+							exitUsed[1+ex] = true
+						}
+					}
+
+					if t >= 0x34 && t <= 0x37 {
+						ex := t - 0x34
+						// stairs:
+						if !exitUsed[1+ex] {
+							fmt.Printf("    stairs%d: %v\n", ex, exitST[1+ex])
+							dungeon.Stack = append(dungeon.Stack, exitST[1+ex])
+							exitUsed[1+ex] = true
+						}
+					}
+
+					if !exitUsed[1] {
+						// 38 - Straight inter-room stairs north/down edge
+						// 39 - Straight inter-room stairs south/up edge
+						if t == 0x38 || t == 0x39 {
+							// stair0:
+							fmt.Printf("    stairs0: %v\n", exitST[1])
+							dungeon.Stack = append(dungeon.Stack, exitST[1])
+							exitUsed[1] = true
+						}
+					}
+				}
 			}
 
 			// check open pathways on edges:

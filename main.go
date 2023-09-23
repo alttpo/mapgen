@@ -287,14 +287,6 @@ func main() {
 
 	setupAlttp(&e)
 
-	{
-		err = reachabilityAnalysis(&e)
-		if err != nil {
-			panic(err)
-		}
-		os.Exit(0)
-	}
-
 	//RoomsWithPitDamage#_00990C [0x70]uint16
 	roomsWithPitDamage = make(map[Supertile]bool, 0x128)
 	for i := Supertile(0); i < 0x128; i++ {
@@ -338,6 +330,14 @@ func main() {
 	}
 
 	//entranceMin, entranceMax := uint8(0), uint8(entranceCount-1)
+
+	{
+		err = reachabilityAnalysis(&e)
+		if err != nil {
+			panic(err)
+		}
+		os.Exit(0)
+	}
 
 	wg := sync.WaitGroup{}
 	for eID := entranceMin; eID <= entranceMax; eID++ {
