@@ -2,7 +2,14 @@ package main
 
 import (
 	"fmt"
+	"golang.org/x/image/draw"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/inconsolata"
+	"golang.org/x/image/math/fixed"
+	"image"
+	"image/color"
 	"os"
+	"slices"
 )
 
 func reachabilityAnalysis(initEmu *System) (err error) {
@@ -26,53 +33,41 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 	roomHeaderTableLong := e.Bus.Read24(fastRomBank | 0x01_b5dc + 1)
 	//fmt.Printf("table: %06x\n", roomHeaderTableLong)
 
-	aliases := map[uint16]uint16{}
 	roomHeaderPointers := [0x140]uint16{}
 	for i := uint16(0); i < 0x140; i++ {
 		roomHeaderPointers[i] = e.Bus.Read16(roomHeaderTableLong + uint32(i)<<1)
 		//fmt.Printf("[%03x]: %04x\n", i, roomHeaderPointers[i])
-
-		// find our alias:
-		for j := uint16(0); j < i; j++ {
-			if roomHeaderPointers[i] == roomHeaderPointers[j] {
-				aliases[i] = j
-				//fmt.Printf("  alias for %03x\n", j)
-				break
-			}
-		}
 	}
 
-	// make a map of which room index owns which bytes in the table (earliest room ID "wins"):
-	addrUsed := map[uint16]uint16{}
-	for i := uint16(0); i < 0x140; i++ {
-		// skip overlap analysis for aliased pointers:
-		if _, ok := aliases[i]; ok {
-			continue
-		}
+	// sort pointers in ascending order:
+	pointersSorted := [0x140]uint16{}
+	copy(pointersSorted[:], roomHeaderPointers[:])
+	slices.Sort(pointersSorted[:])
 
+	// make a map of which room pointer owns which bytes in the table (lowest address "wins"):
+	addrOwner := map[uint16]uint16{}
+	for i := uint16(0); i < 0x140; i++ {
 		for j := uint16(0); j < 14; j++ {
-			p := roomHeaderPointers[i] + j
-			addrUsed[p] = i
+			p := pointersSorted[i] + j
+			addrOwner[p] = pointersSorted[i]
 		}
 	}
 
 	roomHeaders := [0x140][14]uint8{}
 	for i := uint16(0); i < 0x140; i++ {
-		owner := i
-		if alias, ok := aliases[owner]; ok {
-			owner = alias
-		}
 		for j := uint16(0); j < 14; j++ {
-			p := roomHeaderPointers[owner] + j
-			if addrUsed[p] == owner {
+			p := roomHeaderPointers[i] + j
+			if addrOwner[p] == roomHeaderPointers[i] {
 				roomHeaders[i][j] = e.Bus.Read8(roomHeaderTableLong&0xFF_0000 | uint32(p))
 			}
 		}
 	}
 
-	//for i := uint16(0); i < 0x140; i++ {
-	//	fmt.Printf("[%03x]: %#v\n", i, roomHeaders[i])
-	//}
+	for i := uint16(0); i < 0x128; i++ {
+		fmt.Printf("[%03x]: %#v\n", i, roomHeaders[i])
+	}
+
+	//os.Exit(0)
 
 	wram := (e.WRAM)[:]
 
@@ -85,6 +80,16 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 		Stack []Supertile
 	}
 	dungeons := map[uint8]*Dungeon{}
+
+	// create an all-encompassing EG map:
+	all := image.NewNRGBA(image.Rect(0, 0, 16*512, 19*512))
+	// clear the image and remove alpha layer
+	draw.Draw(
+		all,
+		all.Bounds(),
+		image.NewUniform(color.NRGBA{0, 0, 0, 255}),
+		image.Point{},
+		draw.Src)
 
 	// entrances...
 	for eID := uint8(0); eID < 0x85; eID++ {
@@ -132,6 +137,7 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 			}
 
 			fmt.Printf("  scan supertile %03x\n", st16)
+			fmt.Printf("    header: %#v\n", roomHeaders[st16])
 			dungeon.ContainsSupertile[st16] = struct{}{}
 			dungeon.Supertiles = append(dungeon.Supertiles, st)
 
@@ -168,6 +174,26 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 			//bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x2000])))[:]
 			//bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x4000])))[:]
 			_ = os.WriteFile(fmt.Sprintf("data/t%03x.map", st16), tiles, 0644)
+
+			// render to EG map:
+			{
+				sy := (st16 & 0x1F0) << 5
+				sx := (st16 & 0x00F) << 9
+				pal, bg1p, bg2p, addColor, halfColor := renderBGLayers(e.WRAM, e.VRAM[0x4000:0x8000])
+				ComposeToNonPaletted(
+					all.SubImage(image.Rect(
+						int(sx),
+						int(sy),
+						int(sx+512),
+						int(sy+512),
+					)).(draw.Image),
+					pal,
+					bg1p,
+					bg2p,
+					addColor,
+					halfColor,
+				)
+			}
 
 			// check doors to neighboring supertiles:
 			for m := 0; m < 16; m++ {
@@ -224,5 +250,41 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 		fmt.Printf("d[%02x]: %#v\n", dungeon.DungeonID, dungeon.Supertiles)
 	}
 
+	if drawNumbers {
+		black := image.NewUniform(color.RGBA{0, 0, 0, 255})
+		white := image.NewUniform(color.RGBA{255, 255, 255, 255})
+
+		for st := 0; st < 0x128; st++ {
+			row := st / 0x10
+			col := st % 0x10
+
+			stx := col * 512
+			sty := row * 512
+
+			// draw supertile number in top-left:
+			var stStr string
+			if st < 0x100 {
+				stStr = fmt.Sprintf("%02X", st)
+			} else {
+				stStr = fmt.Sprintf("%03X", st)
+			}
+			(&font.Drawer{
+				Dst:  all,
+				Src:  black,
+				Face: inconsolata.Bold8x16,
+				Dot:  fixed.Point26_6{fixed.I(stx + 5), fixed.I(sty + 5 + 12)},
+			}).DrawString(stStr)
+			(&font.Drawer{
+				Dst:  all,
+				Src:  white,
+				Face: inconsolata.Bold8x16,
+				Dot:  fixed.Point26_6{fixed.I(stx + 4), fixed.I(sty + 4 + 12)},
+			}).DrawString(stStr)
+		}
+	}
+
+	if err = exportPNG(fmt.Sprintf("data/%s.png", "eg"), all); err != nil {
+		panic(err)
+	}
 	return
 }

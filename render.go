@@ -469,10 +469,20 @@ func (room *RoomState) RenderBGLayers() (
 	bg2p [2]*image.Paletted,
 	addColor, halfColor bool,
 ) {
-	wram := (&room.WRAM)[:]
+	return renderBGLayers(&room.WRAM, (&room.VRAMTileSet)[:])
+}
+
+func renderBGLayers(wramArray *WRAMArray, tileset []uint8) (
+	pal color.Palette,
+	bg1p [2]*image.Paletted,
+	bg2p [2]*image.Paletted,
+	addColor, halfColor bool,
+) {
+	wram := wramArray[:]
 
 	// assume WRAM has rendering state as well:
-	isDark := room.IsDarkRoom()
+	//isDark := room.IsDarkRoom()
+	isDark := read8(wram, 0xC005) != 0
 
 	// INIDISP contains PPU brightness
 	//brightness := read8(wram, 0x13) & 0xF
@@ -496,7 +506,6 @@ func (room *RoomState) RenderBGLayers() (
 
 	// render all separate BG1 and BG2 priority layers:
 	{
-		tileset := (&room.VRAMTileSet)[:]
 		bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x2000])))[:]
 		renderBGsep(bg1p, bg1wram, tileset, drawBG1p0, drawBG1p1)
 		if !isDark {
@@ -649,6 +658,8 @@ func ComposeToNonPaletted(
 	addColor bool,
 	halfColor bool,
 ) {
+	mx := dst.Bounds().Min.X
+	my := dst.Bounds().Min.Y
 	if halfColor {
 		// color math: add half
 		for y := 0; y < 512; y++ {
@@ -664,9 +675,9 @@ func ComposeToNonPaletted(
 						B: sat(b1>>1 + b2>>1),
 						A: 0xffff,
 					}
-					dst.Set(x, y, c)
+					dst.Set(mx+x, my+y, c)
 				} else {
-					dst.Set(x, y, pal[bg1c])
+					dst.Set(mx+x, my+y, pal[bg1c])
 				}
 			}
 		}
@@ -684,7 +695,7 @@ func ComposeToNonPaletted(
 					B: sat(b1 + b2),
 					A: 0xffff,
 				}
-				dst.Set(x, y, c)
+				dst.Set(mx+x, my+y, c)
 			}
 		}
 	} else {
@@ -696,7 +707,7 @@ func ComposeToNonPaletted(
 				c2 := bg2p[0].ColorIndexAt(x, y)
 				c3 := bg2p[1].ColorIndexAt(x, y)
 				c := pick(pick(c0, c1), pick(c2, c3))
-				dst.Set(x, y, pal[c])
+				dst.Set(mx+x, my+y, pal[c])
 			}
 		}
 	}
