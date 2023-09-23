@@ -105,7 +105,6 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 
 		// read dungeon ID:
 		dungeonID := read8(wram, 0x040C)
-		fmt.Printf("dungeon %02x\n", dungeonID)
 
 		// fetch or create dungeon record:
 		dungeon, ok := dungeons[dungeonID]
@@ -125,6 +124,10 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 		st := read16(wram, 0xA0)
 		dungeon.Stack = append(dungeon.Stack, Supertile(st))
 
+		if len(dungeon.Stack) > 0 {
+			fmt.Printf("dungeon %02x\n", dungeonID)
+		}
+
 		for len(dungeon.Stack) > 0 {
 			// pop off the stack:
 			lifoEnd := len(dungeon.Stack) - 1
@@ -141,22 +144,6 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 			fmt.Printf("    header: %#v\n", roomHeaders[st16])
 			dungeon.ContainsSupertile[st16] = struct{}{}
 			dungeon.Supertiles = append(dungeon.Supertiles, st)
-
-			// follow supertile links to WARP, STAIR0, STAIR1, STAIR2, STAIR3:
-			for j := 9; j < 14; j++ {
-				dest := uint16(roomHeaders[st16][j])
-				if dest == 0 {
-					continue
-				}
-
-				// make sure we haven't already scanned the supertile:
-				if _, ok := dungeon.ContainsSupertile[dest]; ok {
-					continue
-				}
-
-				// add it to the stack to be scanned for links:
-				dungeon.Stack = append(dungeon.Stack, Supertile(dest))
-			}
 
 			// load the supertile into emulator memory:
 			*e.WRAM = entranceLoadedWRAM
@@ -216,6 +203,24 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 				}
 			}
 
+			// follow supertile links to WARP, STAIR0, STAIR1, STAIR2, STAIR3:
+			linkType := [5]string{"warp", "stair0", "stair1", "stair2", "stair3"}
+			for j := 9; j < 14; j++ {
+				dest := uint16(roomHeaders[st16][j]) | st16&0x100
+				if dest == 0 {
+					continue
+				}
+
+				// make sure we haven't already scanned the supertile:
+				if _, ok := dungeon.ContainsSupertile[dest]; ok {
+					continue
+				}
+
+				// add it to the stack to be scanned for links:
+				fmt.Printf("    %s -> %v\n", linkType[j-9], Supertile(dest))
+				dungeon.Stack = append(dungeon.Stack, Supertile(dest))
+			}
+
 			// check doors to neighboring supertiles:
 			for m := 0; m < 16; m++ {
 				tpos := read16(wram, uint32(0x19A0+(m<<1)))
@@ -232,7 +237,7 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 				}
 				doorTile := tiles[door.Pos+0x41]
 
-				fmt.Printf("  door: %v; t = %02x\n", door, doorTile)
+				//fmt.Printf("    door: %v; t = %02x\n", door, doorTile)
 
 				// check if the door is on the edge:
 				isDoorEdge, edgeDir, _, _ := door.Pos.IsDoorEdge()
@@ -242,7 +247,7 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 
 				// don't traverse over dungeon-exit doors:
 				if doorTile == 0x8e {
-					// south dungeon exit:
+					// north/south dungeon exit:
 					continue
 				}
 				if doorTile == 0x89 {
@@ -252,8 +257,9 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 
 				// attempt to move through the door to the neighboring supertile:
 				var dest Supertile
+				var dir Direction
 				var ok bool
-				if dest, _, ok = st.MoveBy(edgeDir); !ok {
+				if dest, dir, ok = st.MoveBy(edgeDir); !ok {
 					continue
 				}
 
@@ -264,6 +270,7 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 				}
 
 				// push neighbor onto supertile stack:
+				fmt.Printf("    door: %v -> %v\n", dir, dest)
 				dungeon.Stack = append(dungeon.Stack, dest)
 			}
 
@@ -273,42 +280,46 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 
 				// south edge:
 				if findWalkwayHoriz(tiles, 0x0fc0) || findWalkwayHoriz(tiles, 0x1fc0) {
-					if dest, _, ok := st.MoveBy(DirSouth); ok {
+					if dest, dir, ok := st.MoveBy(DirSouth); ok {
 						// push neighbor onto supertile stack:
+						fmt.Printf("    edge: %v -> %v\n", dir, dest)
 						dungeon.Stack = append(dungeon.Stack, dest)
 					}
 				}
 
 				// north edge:
 				if findWalkwayHoriz(tiles, 0x0000) || findWalkwayHoriz(tiles, 0x1000) {
-					if dest, _, ok := st.MoveBy(DirNorth); ok {
+					if dest, dir, ok := st.MoveBy(DirNorth); ok {
 						// push neighbor onto supertile stack:
+						fmt.Printf("    edge: %v -> %v\n", dir, dest)
 						dungeon.Stack = append(dungeon.Stack, dest)
 					}
 				}
 
 				// west edge:
 				if findWalkwayVert(tiles, 0x0000) || findWalkwayVert(tiles, 0x1000) {
-					if dest, _, ok := st.MoveBy(DirWest); ok {
+					if dest, dir, ok := st.MoveBy(DirWest); ok {
 						// push neighbor onto supertile stack:
+						fmt.Printf("    edge: %v -> %v\n", dir, dest)
 						dungeon.Stack = append(dungeon.Stack, dest)
 					}
 				}
 
 				// east edge:
 				if findWalkwayVert(tiles, 0x003f) || findWalkwayVert(tiles, 0x103f) {
-					if dest, _, ok := st.MoveBy(DirEast); ok {
+					if dest, dir, ok := st.MoveBy(DirEast); ok {
 						// push neighbor onto supertile stack:
+						fmt.Printf("    edge: %v -> %v\n", dir, dest)
 						dungeon.Stack = append(dungeon.Stack, dest)
 					}
 				}
 			}
 		}
 
-		fmt.Printf("d[%02x]: %#v\n", dungeon.DungeonID, dungeon.Supertiles)
+		fmt.Printf("  supertiles: %#v\n", dungeon.Supertiles)
 	}
 
-	fmt.Printf("%#v\n", dungeons)
+	fmt.Printf("%#+v\n", dungeons)
 
 	if drawNumbers {
 		black := image.NewUniform(color.RGBA{0, 0, 0, 255})
