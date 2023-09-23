@@ -344,6 +344,13 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 						}
 					}
 				}
+
+				// HACK: IP boss exit:
+				if st16 == 0x0CE {
+					fmt.Printf("    pit (IP): %v\n", exitST[0])
+					dungeon.Stack = append(dungeon.Stack, exitST[0])
+					exitUsed[0] = true
+				}
 			}
 
 			// check open pathways on edges:
