@@ -413,12 +413,26 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 		}
 		slices.Sort(ids)
 
-		fmt.Print("var dungeons map[uint8][]uint16 = {\n")
+		fmt.Print("\nvar dungeonSupertiles = map[uint8][]uint16{\n")
 		for _, dungeonID := range ids {
 			fmt.Printf("\t0x%02x: {", dungeonID)
 			sts := dungeons[dungeonID].Supertiles
 			for i, st := range sts {
 				fmt.Printf("0x%03x", uint16(st))
+				if i < len(sts)-1 {
+					fmt.Print(", ")
+				}
+			}
+			fmt.Print("},\n")
+		}
+		fmt.Print("}\n")
+
+		fmt.Print("\nvar dungeonEntrances = map[uint8][]uint8{\n")
+		for _, dungeonID := range ids {
+			fmt.Printf("\t0x%02x: {", dungeonID)
+			sts := dungeons[dungeonID].Entrances
+			for i, st := range sts {
+				fmt.Printf("0x%02x", uint16(st))
 				if i < len(sts)-1 {
 					fmt.Print(", ")
 				}
