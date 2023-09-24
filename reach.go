@@ -159,11 +159,11 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 			tiles := wram[0x12000:0x14000]
 			if true {
 				// export tilemaps:
-				_ = os.WriteFile(fmt.Sprintf("data/t%03x.til.map", st16), tiles, 0644)
+				_ = os.WriteFile(fmt.Sprintf("t%03x.til.map", st16), tiles, 0644)
 				bg1wram := (*(*[0x2000]uint8)(unsafe.Pointer(&wram[0x2000])))[:]
-				_ = os.WriteFile(fmt.Sprintf("data/t%03x.bg1.map", st16), bg1wram, 0644)
+				_ = os.WriteFile(fmt.Sprintf("t%03x.bg1.map", st16), bg1wram, 0644)
 				bg2wram := (*(*[0x2000]uint8)(unsafe.Pointer(&wram[0x4000])))[:]
-				_ = os.WriteFile(fmt.Sprintf("data/t%03x.bg2.map", st16), bg2wram, 0644)
+				_ = os.WriteFile(fmt.Sprintf("t%03x.bg2.map", st16), bg2wram, 0644)
 			}
 
 			// render to EG map:
@@ -191,12 +191,12 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 					{
 						bg1 := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
 						ComposeToPaletted(bg1, pal, bg1p, [2]*image.Paletted{blankFrame, blankFrame}, addColor, halfColor)
-						_ = exportPNG(fmt.Sprintf("data/t%03x.bg1.png", st16), bg1)
+						_ = exportPNG(fmt.Sprintf("t%03x.bg1.png", st16), bg1)
 					}
 					{
 						bg2 := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
 						ComposeToPaletted(bg2, pal, [2]*image.Paletted{blankFrame, blankFrame}, bg2p, addColor, halfColor)
-						_ = exportPNG(fmt.Sprintf("data/t%03x.bg2.png", st16), bg2)
+						_ = exportPNG(fmt.Sprintf("t%03x.bg2.png", st16), bg2)
 					}
 				}
 			}
@@ -260,6 +260,13 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 					// north/south dungeon exit:
 					continue
 				}
+
+				// TODO: JSL
+				// HandleEdgeTransitionMovementEast#_02B572
+				// HandleEdgeTransitionMovementWest#_02B611
+				// HandleEdgeTransitionMovementSouth#_02B6B2
+				// HandleEdgeTransitionMovementNorth#_02B754
+
 				if doorTile == 0x89 {
 					// east/west exit:
 					if door.Dir == DirWest && !exitUsed[3] {
@@ -398,7 +405,30 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 		fmt.Printf("  supertiles: %#v\n", dungeon.Supertiles)
 	}
 
-	fmt.Printf("%#+v\n", dungeons)
+	// emit full lookup of dungeonId -> []Supertile
+	{
+		ids := make([]uint8, 0, len(dungeons))
+		for dungeonID := range dungeons {
+			ids = append(ids, dungeonID)
+		}
+		slices.Sort(ids)
+
+		fmt.Print("var dungeons map[uint8][]uint16 = {\n")
+		for _, dungeonID := range ids {
+			fmt.Printf("\t0x%02x: {", dungeonID)
+			sts := dungeons[dungeonID].Supertiles
+			for i, st := range sts {
+				fmt.Printf("0x%03x", uint16(st))
+				if i < len(sts)-1 {
+					fmt.Print(", ")
+				}
+			}
+			fmt.Print("},\n")
+		}
+		fmt.Print("}\n")
+
+		//fmt.Printf("%#+v\n", dungeons)
+	}
 
 	if drawNumbers {
 		black := image.NewUniform(color.RGBA{0, 0, 0, 255})
@@ -433,7 +463,7 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 		}
 	}
 
-	if err = exportPNG(fmt.Sprintf("data/%s.png", "eg"), all); err != nil {
+	if err = exportPNG(fmt.Sprintf("%s.png", "eg"), all); err != nil {
 		panic(err)
 	}
 	return

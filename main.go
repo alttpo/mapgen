@@ -11,7 +11,9 @@ import (
 	"image"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"unsafe"
 )
@@ -279,6 +281,18 @@ func main() {
 			fmt.Println("SlowROM")
 			fastRomBank = 0
 		}
+	}
+
+	// make data directory:
+	{
+		_, romFilename := filepath.Split(romPath)
+		if i := strings.LastIndexByte(romFilename, '.'); i >= 0 {
+			romFilename = romFilename[:i]
+		}
+		romFilename += "-data"
+		fmt.Printf("chdir `%s`\n", romFilename)
+		_ = os.MkdirAll(romFilename, 0755)
+		_ = os.Chdir(romFilename)
 	}
 
 	if err = e.InitEmulator(); err != nil {
