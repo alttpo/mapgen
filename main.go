@@ -18,6 +18,8 @@ import (
 	"sync"
 )
 
+const hackhackhack = false
+
 var (
 	b02LoadUnderworldSupertilePC     uint32 = 0x02_5200
 	b01LoadAndDrawRoomPC             uint32
@@ -190,7 +192,11 @@ func main() {
 		if i := strings.LastIndexByte(romFilename, '.'); i >= 0 {
 			romFilename = romFilename[:i]
 		}
-		romFilename += "-data"
+		if hackhackhack {
+			romFilename += "-HACK"
+		} else {
+			romFilename += "-data"
+		}
 		fmt.Printf("chdir `%s`\n", romFilename)
 		_ = os.MkdirAll(romFilename, 0755)
 		_ = os.Chdir(romFilename)
@@ -464,6 +470,17 @@ findSupertile:
 			g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
 			ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
 			room.RenderSprites(g)
+
+			// HACK:
+			if hackhackhack {
+				fmt.Println("oops all pipes!")
+				for i := uint32(0); i < 16; i++ {
+					et := read8(wram, 0x0E20+i)
+					if et < 0xAE || st > 0xB1 {
+						write8(wram, 0x0E20+i, uint8(i&3)+0xAE)
+					}
+				}
+			}
 
 			lastFrame = g
 			room.EnemyMovementGIF.Image = append(room.EnemyMovementGIF.Image, g)
