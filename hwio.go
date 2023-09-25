@@ -112,6 +112,10 @@ type HWIO struct {
 		incrAmt       uint16 // 1, 32, or 128
 		addrRemapping byte
 		addr          uint16
+
+		oamadd                 uint16
+		ObjTilemapAddress      uint32
+		ObjNamespaceSeparation uint32
 	}
 
 	// mapped to $5000-$7FFF
@@ -195,12 +199,32 @@ func (h *HWIO) Write(address uint32, value byte) {
 		// INIDISP
 		return
 	}
-	if offs == 0x2102 || offs == 0x2103 {
-		// OAMADD
+	if offs == 0x2101 {
+		// OBSEL
+		h.PPU.ObjNamespaceSeparation = uint32(value&0x18) << 9
+		h.PPU.ObjTilemapAddress = uint32(value&0x7) << 13
+		// skip size table
+		return
+	}
+	if offs == 0x2102 {
+		// OAMADDL
+		h.PPU.oamadd = uint16(value) | h.PPU.oamadd&0xFF00
+		return
+	}
+	if offs == 0x2103 {
+		// OAMADDH
+		h.PPU.oamadd = uint16(value)<<8 | h.PPU.oamadd&0x00FF
 		return
 	}
 	if offs == 0x2104 {
 		// OAMDATA
+		h.s.OAM[h.PPU.oamadd] = value
+
+		// TODO: how to wrap this?
+		h.PPU.oamadd = h.PPU.oamadd + 1
+		if h.PPU.oamadd >= 544 {
+			h.PPU.oamadd = 0
+		}
 		return
 	}
 	if offs == 0x2121 {

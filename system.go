@@ -10,6 +10,7 @@ import (
 type WRAMArray = [0x20000]byte
 type SRAMArray = [0x10000]byte
 type VRAMArray = [0x10000]byte
+type OAMArray = [544]byte
 
 type BusMapping int
 
@@ -33,6 +34,7 @@ type System struct {
 	SRAM *SRAMArray
 
 	VRAM *VRAMArray
+	OAM  *OAMArray
 
 	Logger    io.Writer
 	LoggerCPU io.Writer
@@ -48,6 +50,9 @@ func (s *System) InitMemory() {
 	}
 	if s.VRAM == nil {
 		s.VRAM = &VRAMArray{}
+	}
+	if s.OAM == nil {
+		s.OAM = &OAMArray{}
 	}
 }
 
@@ -65,6 +70,7 @@ func (s *System) InitEmulatorFrom(initEmu *System) (err error) {
 	*s.WRAM = *initEmu.WRAM
 	*s.SRAM = *initEmu.SRAM
 	*s.VRAM = *initEmu.VRAM
+	*s.OAM = *initEmu.OAM
 
 	s.HWIO = initEmu.HWIO
 

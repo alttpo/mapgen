@@ -852,6 +852,9 @@ func setupAlttp(e *System) {
 		a.SEP(0x30)
 
 		//a.Label("continue_submodule")
+		a.Comment("JSR ClearOAMBuffer")
+		// ClearOAMBuffer#_00841E
+		a.JSR_abs(0x841E)
 		a.Comment("JSL Module_MainRouting")
 		a.JSL(fastRomBank | 0x00_80B5)
 

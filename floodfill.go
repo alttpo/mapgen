@@ -470,7 +470,7 @@ func processEntrance(
 			for t := 0; t < tiles; t++ {
 				// palette 2
 				z := uint16(t) | (2 << 10)
-				draw4bppTile(
+				draw4bppBGTile(
 					g,
 					z,
 					(&room.VRAMTileSet)[:],
