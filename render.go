@@ -528,6 +528,36 @@ func renderBGLayers(wramArray *WRAMArray, tileset []uint8) (
 	return
 }
 
+func drawShadowedString(g draw.Image, clr image.Image, dot fixed.Point26_6, s string) {
+	// shadow:
+	for oy := -1; oy <= 1; oy++ {
+		for ox := -1; ox <= 1; ox++ {
+			(&font.Drawer{
+				Dst:  g,
+				Src:  image.Black,
+				Face: inconsolata.Bold8x16,
+				Dot:  fixed.Point26_6{X: dot.X + fixed.I(ox), Y: dot.Y + fixed.I(oy)},
+			}).DrawString(s)
+		}
+	}
+
+	// regular label:
+	(&font.Drawer{
+		Dst:  g,
+		Src:  clr,
+		Face: inconsolata.Bold8x16,
+		Dot:  dot,
+	}).DrawString(s)
+}
+
+func drawOutlineBox(g draw.Image, clr image.Image, x, y int, w, h int) {
+	// outline box:
+	draw.Draw(g, image.Rect(x, y, x+w, y+1), clr, image.Point{}, draw.Over)
+	draw.Draw(g, image.Rect(x+w, y, x+w+1, y+h), clr, image.Point{}, draw.Over)
+	draw.Draw(g, image.Rect(x, y+h, x+w, y+h+1), clr, image.Point{}, draw.Over)
+	draw.Draw(g, image.Rect(x, y, x+1, y+h), clr, image.Point{}, draw.Over)
+}
+
 func (room *RoomState) RenderSprites(g draw.Image) {
 	wram := (&room.WRAM)[:]
 
@@ -580,24 +610,43 @@ func (room *RoomState) RenderSprites(g draw.Image) {
 		//	row,
 		//)
 
+		hb := hitbox[read8(wram, 0x0F60+i)&0x1F]
+
 		if st == 0 {
 			// dead:
 			clr = red
 		}
 
-		(&font.Drawer{
-			Dst:  g,
-			Src:  clr,
-			Face: inconsolata.Bold8x16,
-			Dot:  fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)},
-		}).DrawString(fmt.Sprintf("%02x", et))
-
-		if st == 0 {
+		drawOutlineBox(g, clr, lx+hb.X, ly+hb.Y, hb.W, hb.H)
+		if false {
 			// outline box:
-			draw.Draw(g, image.Rect(lx, ly, lx+16, ly+1), clr, image.Point{}, draw.Over)
-			draw.Draw(g, image.Rect(lx+16, ly, lx+16+1, ly+16), clr, image.Point{}, draw.Over)
-			draw.Draw(g, image.Rect(lx, ly+16, lx+16, ly+16+1), clr, image.Point{}, draw.Over)
-			draw.Draw(g, image.Rect(lx, ly, lx+1, ly+16), clr, image.Point{}, draw.Over)
+			draw.Draw(g, image.Rect(lx+hb.X, ly+hb.Y, lx+hb.X+hb.W, ly+hb.Y+1), clr, image.Point{}, draw.Over)
+			draw.Draw(g, image.Rect(lx+hb.X+hb.W, ly+hb.Y, lx+hb.X+hb.W+1, ly+hb.Y+hb.H), clr, image.Point{}, draw.Over)
+			draw.Draw(g, image.Rect(lx+hb.X, ly+hb.Y+hb.H, lx+hb.X+hb.W, ly+hb.Y+hb.H+1), clr, image.Point{}, draw.Over)
+			draw.Draw(g, image.Rect(lx+hb.X, ly+hb.Y, lx+hb.X+1, ly+hb.Y+hb.H), clr, image.Point{}, draw.Over)
+		}
+
+		// colored number label:
+		drawShadowedString(g, clr, fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)}, fmt.Sprintf("%02x", et))
+		if false {
+			// shadow first:
+			for oy := -1; oy <= 1; oy++ {
+				for ox := -1; ox <= 1; ox++ {
+					(&font.Drawer{
+						Dst:  g,
+						Src:  image.Black,
+						Face: inconsolata.Bold8x16,
+						Dot:  fixed.Point26_6{X: fixed.I(lx + ox), Y: fixed.I(ly + oy + 12)},
+					}).DrawString(fmt.Sprintf("%02x", et))
+				}
+			}
+			// colored number label:
+			(&font.Drawer{
+				Dst:  g,
+				Src:  clr,
+				Face: inconsolata.Bold8x16,
+				Dot:  fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)},
+			}).DrawString(fmt.Sprintf("%02x", et))
 		}
 	}
 
@@ -617,12 +666,8 @@ func (room *RoomState) RenderSprites(g draw.Image) {
 		}
 
 		green := image.NewUniform(color.RGBA{0, 255, 0, 255})
-		(&font.Drawer{
-			Dst:  g,
-			Src:  green,
-			Face: inconsolata.Bold8x16,
-			Dot:  fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)},
-		}).DrawString("LK")
+		drawOutlineBox(g, green, lx, ly, 16, 16)
+		drawShadowedString(g, green, fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)}, "LK")
 	}
 }
 

@@ -338,15 +338,22 @@ func roomMovement(st Supertile, initEmu *System) {
 	var err error
 
 	dungeonID := uint8(0xff)
+	exists := false
 findSupertile:
 	for id, sts := range dungeonSupertiles {
 		for _, s := range sts {
 			if s == uint16(st) {
 				dungeonID = id
+				exists = true
 				break findSupertile
 			}
 		}
 	}
+	if !exists {
+		// skip unused supertiles:
+		return
+	}
+
 	// get first entrance ID:
 	eID := dungeonEntrances[dungeonID][0]
 
@@ -556,9 +563,32 @@ findSupertile:
 	return
 }
 
+type Hitbox struct {
+	X int
+	Y int
+	W int
+	H int
+}
+
+var hitbox [32]Hitbox
+
 func setupAlttp(e *System) {
 	var a *asm.Emitter
 	var err error
+
+	// pool Sprite_SetupHitBox
+	//  .offset_x_low#_06F735
+	// .offset_x_high#_06F755
+	//         .width#_06F775
+	//  .offset_y_low#_06F795
+	// .offset_y_high#_06F7B5
+	//        .height#_06F7D5
+	for i := uint32(0); i < 32; i++ {
+		hitbox[i].X = int(int8(e.Bus.Read8(0x06_F735 + i)))
+		hitbox[i].Y = int(int8(e.Bus.Read8(0x06_F795 + i)))
+		hitbox[i].W = int(int8(e.Bus.Read8(0x06_F775 + i)))
+		hitbox[i].H = int(int8(e.Bus.Read8(0x06_F7D5 + i)))
+	}
 
 	// initialize game:
 	e.CPU.Reset()
