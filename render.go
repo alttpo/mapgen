@@ -618,36 +618,9 @@ func (room *RoomState) RenderSprites(g draw.Image) {
 		}
 
 		drawOutlineBox(g, clr, lx+hb.X, ly+hb.Y, hb.W, hb.H)
-		if false {
-			// outline box:
-			draw.Draw(g, image.Rect(lx+hb.X, ly+hb.Y, lx+hb.X+hb.W, ly+hb.Y+1), clr, image.Point{}, draw.Over)
-			draw.Draw(g, image.Rect(lx+hb.X+hb.W, ly+hb.Y, lx+hb.X+hb.W+1, ly+hb.Y+hb.H), clr, image.Point{}, draw.Over)
-			draw.Draw(g, image.Rect(lx+hb.X, ly+hb.Y+hb.H, lx+hb.X+hb.W, ly+hb.Y+hb.H+1), clr, image.Point{}, draw.Over)
-			draw.Draw(g, image.Rect(lx+hb.X, ly+hb.Y, lx+hb.X+1, ly+hb.Y+hb.H), clr, image.Point{}, draw.Over)
-		}
 
 		// colored number label:
-		drawShadowedString(g, clr, fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)}, fmt.Sprintf("%02x", et))
-		if false {
-			// shadow first:
-			for oy := -1; oy <= 1; oy++ {
-				for ox := -1; ox <= 1; ox++ {
-					(&font.Drawer{
-						Dst:  g,
-						Src:  image.Black,
-						Face: inconsolata.Bold8x16,
-						Dot:  fixed.Point26_6{X: fixed.I(lx + ox), Y: fixed.I(ly + oy + 12)},
-					}).DrawString(fmt.Sprintf("%02x", et))
-				}
-			}
-			// colored number label:
-			(&font.Drawer{
-				Dst:  g,
-				Src:  clr,
-				Face: inconsolata.Bold8x16,
-				Dot:  fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)},
-			}).DrawString(fmt.Sprintf("%02x", et))
-		}
+		drawShadowedString(g, clr, fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)}, fmt.Sprintf("%02X", et))
 	}
 
 	// draw Link:
