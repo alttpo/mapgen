@@ -92,6 +92,11 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 
 	// entrances...
 	for eID := uint8(0); eID < 0x85; eID++ {
+		// skip attract mode cinematic entrances:
+		if eID >= 0x73 && eID <= 0x75 {
+			continue
+		}
+
 		// poke the entrance ID into our asm code:
 		e.HWIO.Dyn[setEntranceIDPC&0xffff-0x5000] = eID
 
@@ -255,10 +260,23 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 					continue
 				}
 
+				// skip dungeon exits to overworld:
+				if door.Type.IsExit() {
+					continue
+				}
+
 				// don't traverse over dungeon-exit doors:
 				if doorTile == 0x8e {
 					// north/south dungeon exit:
 					continue
+				}
+
+				// skip over stairwells behind doors on north edges:
+				if door.Dir == DirNorth {
+					stairTile := tiles[door.Pos+0x01]
+					if stairTile >= 0x30 && stairTile <= 0x37 {
+						continue
+					}
 				}
 
 				// TODO: JSL
@@ -305,7 +323,7 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 				for ta := uint16(0); ta < 0x2000; ta++ {
 					t := tiles[ta]
 					if !exitUsed[0] {
-						if !pitDamages {
+						if !pitDamages && !roomsWithUnreachableWarpPits[st] {
 							// pit 0x20, bombable floor 0x62:
 							if t == 0x20 || t == 0x62 {
 								fmt.Printf("    pit: %v\n", exitST[0])
@@ -412,6 +430,35 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 			ids = append(ids, dungeonID)
 		}
 		slices.Sort(ids)
+
+		// analyze dungeons for overlapping supertiles:
+		for _, aid := range ids {
+			for _, st := range dungeons[aid].Supertiles {
+				for _, did := range ids {
+					if aid == did {
+						continue
+					}
+					// first two dungeons are allowed to conflict:
+					if aid == 0x00 && did == 0x02 {
+						continue
+					}
+					if aid == 0x02 && did == 0x00 {
+						continue
+					}
+
+					for _, dst := range dungeons[did].Supertiles {
+						if dst == st {
+							fmt.Printf(
+								"WARN: overlapping supertile 0x%03x between dungeons 0x%02x and 0x%02x\n",
+								uint16(st),
+								aid,
+								did,
+							)
+						}
+					}
+				}
+			}
+		}
 
 		fmt.Print("\nvar dungeonSupertiles = map[uint8][]uint16{\n")
 		for _, dungeonID := range ids {

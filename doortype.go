@@ -13,6 +13,10 @@ func (t DoorType) IsExit() bool {
 		// exit door:
 		return true
 	}
+	//if t == 0x22 {
+	//	// supertile 0b6, north key door covering stairwell?
+	//	return true
+	//}
 	if t == 0x2A {
 		// bombable cave exit:
 		return true
