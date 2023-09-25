@@ -13,6 +13,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -251,15 +252,28 @@ func main() {
 			panic(err)
 		}
 	}
+
 	if true {
 		wg := sync.WaitGroup{}
 		wg.Add(0x128)
+
+		jobs := make(chan func(), runtime.NumCPU())
+		for i := 0; i < runtime.NumCPU(); i++ {
+			go func() {
+				for job := range jobs {
+					job()
+				}
+			}()
+		}
+
 		for st16 := uint16(0); st16 < 0x128; st16++ {
-			go func(st16 uint16) {
+			st16 := st16
+			jobs <- func() {
 				roomMovement(Supertile(st16), &e)
 				wg.Done()
-			}(st16)
+			}
 		}
+
 		wg.Wait()
 	}
 	os.Exit(0)
@@ -449,7 +463,8 @@ findSupertile:
 			//fmt.Println("FRAME")
 			//e.LoggerCPU = os.Stdout
 			// move camera to all four quadrants to get all enemies moving:
-			for j := 0; j < 4; j++ {
+			// NEW: patched out sprite handling to disable off-screen check
+			for j := 0; j < 1; j++ {
 				// BG1H
 				write16(wram, 0xE0, uint16(j&1)<<8+sx)
 				// BG2H
@@ -1340,6 +1355,15 @@ func setupAlttp(e *System) {
 		//RebuildHUD_Keys:
 		//	#_0DFA88: STA.l $7EF36F
 		a.RTL()
+		a.WriteTextTo(e.Logger)
+	}
+
+	{
+		// patch out Sprite_PrepOAMCoord to not disable offscreen sprites.
+		// Sprite_PrepOAMCoord_disable#_06E48B: INC.w $0F00,X  (INC,X = $FE)
+		// to                                   STZ.w $0F00,X  (STZ,X = $9E)
+		a = newEmitterAt(e, fastRomBank|0x06_E48B, true)
+		a.STZ_abs_x(0x0F00)
 		a.WriteTextTo(e.Logger)
 	}
 
