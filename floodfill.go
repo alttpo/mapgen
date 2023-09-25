@@ -2418,21 +2418,3 @@ func (r *RoomState) HandleRoomTags() bool {
 
 	return false
 }
-
-func (room *RoomState) IsAbsInBounds(x uint16, y uint16) bool {
-	// add absolute position from supertile:
-	sx, sy := room.Supertile.AbsTopLeft()
-	if x < sx {
-		return false
-	}
-	if x > sx+511 {
-		return false
-	}
-	if y < sy {
-		return false
-	}
-	if y > sy+511 {
-		return false
-	}
-	return true
-}

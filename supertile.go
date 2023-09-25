@@ -48,3 +48,21 @@ func (s Supertile) AbsTopLeft() (sx uint16, sy uint16) {
 	sy += (st & 0x100) << 5
 	return
 }
+
+func (s Supertile) IsAbsInBounds(x uint16, y uint16) bool {
+	// add absolute position from supertile:
+	sx, sy := s.AbsTopLeft()
+	if x < sx {
+		return false
+	}
+	if x > sx+511 {
+		return false
+	}
+	if y < sy {
+		return false
+	}
+	if y > sy+511 {
+		return false
+	}
+	return true
+}

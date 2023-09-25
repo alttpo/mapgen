@@ -8,7 +8,10 @@ import (
 	"github.com/alttpo/snes"
 	"github.com/alttpo/snes/asm"
 	"github.com/alttpo/snes/mapping/lorom"
+	"golang.org/x/image/draw"
+	"golang.org/x/image/math/fixed"
 	"image"
+	"image/color"
 	"image/gif"
 	"os"
 	"path/filepath"
@@ -265,9 +268,6 @@ func main() {
 
 	// generate supertile animations:
 	if true {
-		wg := sync.WaitGroup{}
-		wg.Add(0x128)
-
 		jobs := make(chan func(), runtime.NumCPU())
 		for i := 0; i < runtime.NumCPU(); i++ {
 			go func() {
@@ -277,8 +277,13 @@ func main() {
 			}()
 		}
 
-		for st16 := uint16(0); st16 < 0x128; st16++ {
+		st16min, st16max := uint16(0), uint16(0x127)
+		//st16min, st16max := uint16(0x57), uint16(0x57)
+
+		wg := sync.WaitGroup{}
+		for st16 := st16min; st16 <= st16max; st16++ {
 			st16 := st16
+			wg.Add(1)
 			jobs <- func() {
 				roomMovement(Supertile(st16), &e)
 				wg.Done()
@@ -520,7 +525,6 @@ findSupertile:
 
 				// update tile sets after NMI; e.g. animated tiles:
 				copy((&room.VRAMTileSet)[:], vram[0x4000:0x8000])
-				//copy(tiles, wram[0x12000:0x14000])
 
 				// check for any killed sprites:
 				for j := 0; j < 16; j++ {
@@ -543,7 +547,8 @@ findSupertile:
 					pal, bg1p, bg2p, addColor, halfColor := room.RenderBGLayers()
 					g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
 					ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
-					room.RenderSprites(g)
+					//renderOAMSprites(g, e.WRAM, e.VRAM, e.OAM, 0, 0)
+					renderSpriteLabels(g, e.WRAM[:], st)
 
 					delta := g
 					dirty := false
@@ -578,6 +583,129 @@ findSupertile:
 	}
 
 	return
+}
+
+func renderOAMSprites(g *image.Paletted, wram *WRAMArray, vram *VRAMArray, oam *OAMArray, qx int, qy int) {
+	for i := 0; i < 128; i++ {
+		//fmt.Printf("[%02X,0]: %02X\n", i, oam[i<<2+0])
+		//fmt.Printf("[%02X,1]: %02X\n", i, oam[i<<2+1])
+		//fmt.Printf("[%02X,2]: %02X\n", i, oam[i<<2+2])
+		//fmt.Printf("[%02X,3]: %02X\n", i, oam[i<<2+3])
+		bits := oam[512+(i>>3)] >> ((i & 3) << 1) & 3
+		//fmt.Printf("[%02X,4]: %02X\n", i, bits)
+
+		x := int(oam[i<<2+0]) | ((int(bits) & 1) << 8)
+		y := int(oam[i<<2+1])
+		t := int(oam[i<<2+2])
+		tn := int(oam[i<<2+3]) & 1
+		fv := oam[i<<2+3]&0x80 != 0
+		fh := oam[i<<2+3]&0x40 != 0
+		pri := oam[i<<2+3] & 0x30 >> 4
+		pal := oam[i<<2+3] & 0xE >> 1
+
+		if x >= 256 {
+			x -= 512
+		}
+		if y >= 0xF0 {
+			y -= 0x100
+		}
+
+		//ta := room.e.HWIO.PPU.ObjTilemapAddress + uint32(t)*0x20
+		//ta += uint32(tn) * room.e.HWIO.PPU.ObjNamespaceSeparation
+		//ta &= 0xFFFF
+		//room.e.VRAM[ta]
+		drawShadowedString(
+			g,
+			image.White,
+			fixed.Point26_6{X: fixed.I(qx + x), Y: fixed.I(qy + y + 12)},
+			fmt.Sprintf("%03X", t|tn<<8),
+		)
+		_, _, _, _ = fv, fh, pri, pal
+	}
+}
+
+func renderSpriteLabels(g draw.Image, wram []byte, st Supertile) {
+	//black := image.NewUniform(color.RGBA{0, 0, 0, 255})
+	yellow := image.NewUniform(color.RGBA{255, 255, 0, 255})
+	red := image.NewUniform(color.RGBA{255, 48, 48, 255})
+
+	// draw sprites:
+	for i := uint32(0); i < 16; i++ {
+		clr := yellow
+
+		// Initial AI state on load:
+		//initialAIState := read8(room.WRAMAfterLoaded[:], 0x0DD0+i)
+		//if initialAIState == 0 {
+		//	// nothing was ever here:
+		//	continue
+		//}
+
+		// determine if in bounds:
+		yl, yh := read8(wram, 0x0D00+i), read8(wram, 0x0D20+i)
+		xl, xh := read8(wram, 0x0D10+i), read8(wram, 0x0D30+i)
+		y := uint16(yl) | uint16(yh)<<8
+		x := uint16(xl) | uint16(xh)<<8
+		if !st.IsAbsInBounds(x, y) {
+			continue
+		}
+
+		// AI state:
+		st := read8(wram, 0x0DD0+i)
+		// enemy type:
+		et := read8(wram, 0x0E20+i)
+
+		var lx, ly int
+		if true {
+			lx = int(x) & 0x1FF
+			ly = int(y) & 0x1FF
+		} else {
+			coord := AbsToMapCoord(x, y, 0)
+			_, row, col := coord.RowCol()
+			lx = int(col << 3)
+			ly = int(row << 3)
+		}
+
+		//fmt.Printf(
+		//	"%02x @ abs(%04x, %04x) -> map(%04x, %04x)\n",
+		//	et,
+		//	x,
+		//	y,
+		//	col,
+		//	row,
+		//)
+
+		hb := hitbox[read8(wram, 0x0F60+i)&0x1F]
+
+		if st == 0 {
+			// dead:
+			clr = red
+		}
+
+		drawOutlineBox(g, clr, lx+hb.X, ly+hb.Y, hb.W, hb.H)
+
+		// colored number label:
+		drawShadowedString(g, clr, fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)}, fmt.Sprintf("%02X", et))
+	}
+
+	// draw Link:
+	{
+		x := read16(wram, 0x22)
+		y := read16(wram, 0x20)
+		var lx, ly int
+		if true {
+			lx = int(x) & 0x1FF
+			ly = int(y) & 0x1FF
+		} else {
+			coord := AbsToMapCoord(x, y, 0)
+			_, row, col := coord.RowCol()
+			lx = int(col << 3)
+			ly = int(row << 3)
+		}
+
+		green := image.NewUniform(color.RGBA{0, 255, 0, 255})
+		drawOutlineBox(g, green, lx, ly, 16, 16)
+		drawShadowedString(g, green, fixed.Point26_6{X: fixed.I(lx), Y: fixed.I(ly + 12)}, "LK")
+	}
 }
 
 type Hitbox struct {
