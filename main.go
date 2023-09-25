@@ -113,7 +113,7 @@ func main() {
 	flag.BoolVar(&supertileGifs, "gifs", false, "render room GIFs")
 	flag.BoolVar(&animateRoomDrawing, "animate", false, "render animated room drawing GIFs")
 	flag.IntVar(&animateRoomDrawingDelay, "animdelay", 15, "room drawing GIF frame delay")
-	flag.IntVar(&enemyMovementFrames, "movementframes", 0, "render N frames in animated GIF of enemy movement after room load")
+	flag.IntVar(&enemyMovementFrames, "movementframes", 300, "render N frames in animated GIF of enemy movement after room load")
 	flag.StringVar(&entranceMinStr, "entmin", "0", "entrance ID range minimum (hex)")
 	flag.StringVar(&entranceMaxStr, "entmax", "84", "entrance ID range maximum (hex)")
 	flag.BoolVar(&staticEntranceMap, "static", false, "use static entrance->supertile map from JP 1.0")
@@ -250,7 +250,7 @@ func main() {
 	}
 
 	// new simplified reachability:
-	if true {
+	if false {
 		err = reachabilityAnalysis(&e)
 		if err != nil {
 			panic(err)
@@ -258,7 +258,7 @@ func main() {
 	}
 
 	// generate supertile animations:
-	if false {
+	if true {
 		wg := sync.WaitGroup{}
 		wg.Add(0x128)
 
