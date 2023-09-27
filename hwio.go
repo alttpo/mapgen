@@ -118,6 +118,8 @@ type HWIO struct {
 		ObjNamespaceSeparation uint32
 	}
 
+	ControllerInput [2]uint16
+
 	// mapped to $5000-$7FFF
 	Dyn [0x3000]byte
 }
@@ -136,6 +138,19 @@ func (h *HWIO) Read(address uint32) (value byte) {
 	offs := address & 0xFFFF
 	if offs >= 0x5000 {
 		value = h.Dyn[offs-0x5000]
+		return
+	}
+	if offs == 0x4218 {
+		value = byte(h.ControllerInput[0] & 0xFF)
+		return
+	}
+	if offs == 0x4219 {
+		value = byte(h.ControllerInput[0] >> 8)
+		return
+	}
+	// OPVCT
+	if offs == 0x213D {
+		value = 0xF0
 		return
 	}
 

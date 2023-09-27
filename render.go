@@ -528,6 +528,56 @@ func renderBGLayers(wramArray *WRAMArray, tileset []uint8) (
 	return
 }
 
+func renderOWBGLayers(wramArray *WRAMArray, bg1tilemap []uint16, bg2tilemap []uint16, tileset []byte) (
+	pal color.Palette,
+	bg1p [2]*image.Paletted,
+	bg2p [2]*image.Paletted,
+	addColor, halfColor bool,
+) {
+	wram := wramArray[:]
+
+	// assume WRAM has rendering state as well:
+	//isDark := room.IsDarkRoom()
+	//isDark := read8(wram, 0xC005) != 0
+
+	// INIDISP contains PPU brightness
+	//brightness := read8(wram, 0x13) & 0xF
+	//_ = brightness
+
+	//ioutil.WriteFile(fmt.Sprintf("data/%03X.vram", st), vram, 0644)
+
+	// extract palette:
+	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
+	pal = cgramToPalette(cgram)
+
+	// render BG layers:
+	bg1p = [2]*image.Paletted{
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+	}
+	bg2p = [2]*image.Paletted{
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+	}
+
+	// render all separate BG1 and BG2 priority layers:
+	renderVRAMBG(bg1p, bg1tilemap, tileset, drawBG1p0, drawBG1p1)
+	renderVRAMBG(bg2p, bg2tilemap, tileset, drawBG2p0, drawBG2p1)
+
+	//subdes := read8(wram, 0x1D)
+	n0414 := read8(wram, 0x0414)
+	addColor = n0414 == 0x07
+	halfColor = n0414 == 0x04
+	flip := n0414 == 0x03
+
+	// swap bg1 and bg2 if color math is involved:
+	if !addColor && !halfColor && !flip {
+		bg1p, bg2p = bg2p, bg1p
+	}
+
+	return
+}
+
 func drawShadowedString(g draw.Image, clr image.Image, dot fixed.Point26_6, s string) {
 	// shadow:
 	for oy := -1; oy <= 1; oy++ {
@@ -905,6 +955,27 @@ func renderBGsep(g [2]*image.Paletted, bg []uint16, tiles []uint8, p0 bool, p1 b
 		for tx := 0; tx < 64; tx++ {
 			z := bg[a]
 			a++
+
+			// priority check:
+			p := (z & 0x2000) >> 13
+			if p == 0 && !p0 {
+				continue
+			}
+			if p == 1 && !p1 {
+				continue
+			}
+			draw4bppBGTile(g[p], z, tiles, tx, ty)
+		}
+	}
+}
+
+func renderVRAMBG(g [2]*image.Paletted, bg []uint16, tiles []uint8, p0 bool, p1 bool) {
+	for ty := 0; ty < 64; ty++ {
+		for tx := 0; tx < 64; tx++ {
+			a := uint32(ty&31)*32 + uint32(tx&31)
+			a += (uint32(tx) & 0x20) << 5
+			a += (uint32(ty) & 0x20) << 6
+			z := bg[a]
 
 			// priority check:
 			p := (z & 0x2000) >> 13

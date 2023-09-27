@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unsafe"
 )
 
 const hackhackhack = false
@@ -29,10 +30,15 @@ var (
 	b01LoadAndDrawRoomSetSupertilePC uint32
 	b00HandleRoomTagsPC              uint32 = 0x00_5300
 	b00RunSingleFramePC              uint32 = 0x00_5400
-	loadEntrancePC                   uint32
-	setEntranceIDPC                  uint32
-	loadSupertilePC                  uint32
-	donePC                           uint32
+
+	loadExitPC         uint32
+	setExitSupertilePC uint32
+	loadOverworldPC    uint32
+	loadEntrancePC     uint32
+	setEntranceIDPC    uint32
+	loadSupertilePC    uint32
+	runFramePC         uint32
+	donePC             uint32
 )
 
 var (
@@ -267,7 +273,7 @@ func main() {
 	}
 
 	// generate supertile animations:
-	if true {
+	if false {
 		jobs := make(chan func(), runtime.NumCPU())
 		for i := 0; i < runtime.NumCPU(); i++ {
 			go func() {
@@ -277,8 +283,9 @@ func main() {
 			}()
 		}
 
-		st16min, st16max := uint16(0), uint16(0x127)
+		//st16min, st16max := uint16(0), uint16(0x127)
 		//st16min, st16max := uint16(0x57), uint16(0x57)
+		st16min, st16max := uint16(0x12), uint16(0x12)
 
 		wg := sync.WaitGroup{}
 		for st16 := st16min; st16 <= st16max; st16++ {
@@ -291,6 +298,141 @@ func main() {
 		}
 
 		wg.Wait()
+		return
+	}
+
+	// overworld screens:
+	if true {
+		func(initEmu *System) {
+			e := &System{
+				Logger:    nil,
+				LoggerCPU: nil,
+			}
+			if err = e.InitEmulatorFrom(initEmu); err != nil {
+				panic(err)
+			}
+
+			wram := e.WRAM[:]
+
+			a := gif.GIF{}
+			var aLastFrame *image.Paletted = nil
+			renderGifFrame := func() {
+				pal, bg1p, bg2p, addColor, halfColor := renderOWBGLayers(
+					e.WRAM,
+					(*(*[0x1000]uint16)(unsafe.Pointer(&e.VRAM[0x0000])))[:],
+					(*(*[0x1000]uint16)(unsafe.Pointer(&e.VRAM[0x2000])))[:],
+					e.VRAM[0x4000:0x8000],
+				)
+				g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+				ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
+				renderSpriteLabels(g, e.WRAM[:], Supertile(read16(e.WRAM[:], 0xA0)))
+
+				dirty := true
+				var delta *image.Paletted
+				if aLastFrame != nil {
+					delta, dirty = generateDeltaFrame(aLastFrame, g)
+				} else {
+					delta = g
+				}
+				aLastFrame = g
+
+				if dirty {
+					a.Image = append(a.Image, delta)
+					a.Delay = append(a.Delay, 2)
+					a.Disposal = append(a.Disposal, gif.DisposalNone)
+				} else {
+					a.Delay[len(a.Delay)-1] += 2
+				}
+			}
+
+			// load sanctuary entrance:
+			f := 0
+			e.HWIO.Dyn[setEntranceIDPC&0xffff-0x5000] = 0x02
+			if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
+				panic(err)
+			}
+			f++
+			fmt.Println(f)
+			renderGifFrame()
+
+			if false {
+				// run for 60 frames:
+				fmt.Println("run 60 frames")
+				for n := 0; n < 60; n++ {
+					//e.LoggerCPU = os.Stdout
+					if err = e.ExecAt(runFramePC, donePC); err != nil {
+						panic(err)
+					}
+					f++
+					fmt.Println(f)
+					renderGifFrame()
+				}
+			}
+
+			// emulate until module=7,submodule=0:
+			fmt.Println("wait until module 7")
+			for {
+				if read8(wram, 0x10) == 0x7 && read8(wram, 0x11) == 0 {
+					break
+				}
+				if err = e.ExecAt(runFramePC, donePC); err != nil {
+					panic(err)
+				}
+				f++
+				fmt.Println(f)
+				renderGifFrame()
+			}
+
+			if true {
+				// now immediately exit sanctuary to go to overworld:
+				//                            BYsSudlr AXLRvvvv
+				e.HWIO.ControllerInput[0] = 0b00000100_00000000
+				//if err = e.ExecAtUntil(loadOverworldPC, donePC, 200000); err != nil {
+				//	panic(err)
+				//}
+				// emulate until module=9,submodule=0:
+				fmt.Println("hold DOWN until module 9")
+				for {
+					if read8(wram, 0x10) == 0x9 && read8(wram, 0x11) == 0 {
+						break
+					}
+					//e.LoggerCPU = os.Stdout
+					if err = e.ExecAt(runFramePC, donePC); err != nil {
+						panic(err)
+					}
+					f++
+					fmt.Println(f)
+					renderGifFrame()
+				}
+
+				fmt.Println("release DOWN for 300 frames")
+				e.HWIO.ControllerInput[0] = 0b00000000_00000000
+				for n := 0; n < 300; n++ {
+					//e.LoggerCPU = os.Stdout
+					if err = e.ExecAt(runFramePC, donePC); err != nil {
+						panic(err)
+					}
+					f++
+					fmt.Println(f)
+					renderGifFrame()
+				}
+			}
+
+			pal, bg1p, bg2p, addColor, halfColor := renderOWBGLayers(
+				e.WRAM,
+				(*(*[0x1000]uint16)(unsafe.Pointer(&e.VRAM[0x0000])))[:],
+				(*(*[0x1000]uint16)(unsafe.Pointer(&e.VRAM[0x2000])))[:],
+				e.VRAM[0x4000:0x8000],
+			)
+			g := image.NewNRGBA(image.Rect(0, 0, 512, 512))
+			ComposeToNonPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
+			renderSpriteLabels(g, e.WRAM[:], Supertile(read16(e.WRAM[:], 0xA0)))
+
+			_ = exportPNG("test.png", g)
+
+			RenderGIF(&a, "test.gif")
+		}(&e)
+		return
 	}
 
 	// old floodfill analysis:
@@ -835,10 +977,11 @@ func setupAlttp(e *System) {
 		a.JSL(fastRomBank | 0x00_E310)
 		a.Comment("LoadDefaultTileTypes#_0FFD2A")
 		a.JSL(fastRomBank | 0x0F_FD2A)
-		//a.Comment("DecompressAnimatedUnderworldTiles#_00D377")
-		//a.JSL(fastRomBank | 0x00_D377)
-		//a.Comment("InitializeTilesets#_00E1DB")
-		//a.JSL(fastRomBank | 0x00_E1DB)
+		a.Comment("InitializeTilesets#_00E1DB")
+		a.JSL(fastRomBank | 0x00_E1DB)
+		a.LDY_imm8_b(0x5D)
+		a.Comment("DecompressAnimatedUnderworldTiles#_00D377")
+		a.JSL(fastRomBank | 0x00_D377)
 
 		// general world state:
 		a.Comment("disable rain")
@@ -849,6 +992,52 @@ func setupAlttp(e *System) {
 		a.LDA_imm8_b(0x10)
 		a.STA_long(0x7EF3C6)
 
+		a.STP()
+		//a.BRA("loadEntrance")
+
+		// load an overworld from an underworld exit:
+		loadExitPC = a.Label("loadExit")
+		a.REP(0x30)
+		setExitSupertilePC = a.Label("setExitSupertile") + 1
+		// set underworld supertile ID we're exiting from:
+		a.LDA_imm16_w(0x0012)
+		a.STA_dp(0xA0)
+
+		// transition to overworld:
+		loadOverworldPC = a.Label("loadOverworld")
+		a.SEP(0x30)
+		a.LDA_imm8_b(0x08)
+		a.STA_abs(0x010C)
+		a.STA_dp(0x10)
+		a.STZ_dp(0x11)
+		a.STZ_dp(0xB0)
+		// DeleteCertainAncillaeStopDashing#_028A0E
+		a.Comment("DeleteCertainAncillaeStopDashing")
+		// Ancilla_TerminateSelectInteractives#_09AC57
+		a.JSL(0x09_AC57)
+		a.LDA_abs(0x0372)
+		a.BEQ("mainRouting")
+
+		a.STZ_dp(0x4D)
+		a.STZ_dp(0x46)
+
+		a.LDA_imm8_b(0xFF)
+		a.STA_dp(0x29)
+		a.STA_dp(0xC7)
+
+		a.STZ_dp(0x3D)
+		a.STZ_dp(0x5E)
+
+		a.STZ_abs(0x032B)
+		a.STZ_abs(0x0372)
+
+		//#_028A2B: LDA.b #$00 ; LINKSTATE 00
+		a.LDA_imm8_b(0x00)
+		//#_028A2D: STA.b $5D
+		a.STA_dp(0x5D)
+		a.BRA("mainRouting")
+
+		// loads a dungeon given an entrance ID:
 		loadEntrancePC = a.Label("loadEntrance")
 		a.SEP(0x30)
 		// prepare to call the underworld room load module:
@@ -863,7 +1052,12 @@ func setupAlttp(e *System) {
 		a.LDA_imm8_b(0x08)
 		a.STA_abs(0x010E)
 
-		// loads a dungeon given an entrance ID:
+		// run a frame:
+		runFramePC = a.Label("mainRouting")
+		a.SEP(0x30)
+		a.Comment("JSR ClearOAMBuffer")
+		// ClearOAMBuffer#_00841E
+		a.JSR_abs(0x841E)
 		a.Comment("JSL Module_MainRouting")
 		a.JSL(fastRomBank | 0x00_80B5)
 		a.BRA("updateVRAM")
@@ -891,8 +1085,16 @@ func setupAlttp(e *System) {
 		// this code sets up the DMA transfer parameters for animated BG tiles:
 		a.Comment("NMI_PrepareSprites")
 		a.JSR_abs(0x85FC)
+
+		// real NMI starts here:
+		a.Comment("prepare for PPU writes")
+		a.LDA_imm8_b(0x80)
+		a.STA_abs(0x2100) // INIDISP
+		a.STZ_abs(0x420C) // HDMAEN
 		a.Comment("NMI_DoUpdates")
-		a.JSR_abs(0x89E0) // NMI_DoUpdates
+		a.JSR_abs(0x89E0)
+		a.Comment("NMI_ReadJoypads")
+		a.JSR_abs(0x83D1)
 
 		// WDM triggers an abort for values >= 10
 		donePC = a.Label("done")
@@ -973,7 +1175,7 @@ func setupAlttp(e *System) {
 	}
 
 	{
-		// emit into our custom $00:5300 routine:
+		// emit into our custom $00:5400 routine:
 		a = asm.NewEmitter(e.HWIO.Dyn[b00RunSingleFramePC&0xFFFF-0x5000:], true)
 		a.SetBase(b00RunSingleFramePC)
 
@@ -986,7 +1188,6 @@ func setupAlttp(e *System) {
 		a.Comment("JSL Module_MainRouting")
 		a.JSL(fastRomBank | 0x00_80B5)
 
-		a.Label("no_submodule")
 		// this code sets up the DMA transfer parameters for animated BG tiles:
 		a.Comment("NMI_PrepareSprites")
 		a.JSR_abs(0x85FC)
