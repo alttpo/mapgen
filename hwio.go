@@ -118,6 +118,16 @@ type HWIO struct {
 		ObjNamespaceSeparation uint32
 	}
 
+	APU struct {
+		mpya uint8  // multiplicand A
+		mpyb uint8  // multiplicand B
+		mpyp uint16 // product
+
+		divd uint16 // dividend
+		divi uint8  // divisor
+		divq uint16 // quotient
+	}
+
 	ControllerInput [2]uint16
 
 	// mapped to $5000-$7FFF
@@ -140,6 +150,29 @@ func (h *HWIO) Read(address uint32) (value byte) {
 		value = h.Dyn[offs-0x5000]
 		return
 	}
+
+	if offs == 0x4214 {
+		// RDDIVL
+		value = uint8(h.APU.divq & 0xFF)
+		return
+	}
+	if offs == 0x4215 {
+		// RDDIVH
+		value = uint8(h.APU.divq >> 8)
+		return
+	}
+
+	if offs == 0x4216 {
+		// RDMPYL
+		value = uint8(h.APU.mpyp & 0xFF)
+		return
+	}
+	if offs == 0x4217 {
+		// RDMPYH
+		value = uint8(h.APU.mpyp >> 8)
+		return
+	}
+
 	if offs == 0x4218 {
 		value = byte(h.ControllerInput[0] & 0xFF)
 		return
@@ -165,6 +198,43 @@ func (h *HWIO) Write(address uint32, value byte) {
 
 	if offs == 0x4200 {
 		// NMITIMEN
+		return
+	}
+
+	if offs == 0x4202 {
+		// WRMPYA
+		h.APU.mpya = value
+		h.APU.mpyp = uint16(h.APU.mpya) * uint16(h.APU.mpyb)
+		return
+	}
+	if offs == 0x4203 {
+		// WRMPYB
+		h.APU.mpyb = value
+		h.APU.mpyp = uint16(h.APU.mpya) * uint16(h.APU.mpyb)
+		return
+	}
+	if offs == 0x4204 {
+		// WRDIVL
+		h.APU.divd = h.APU.divd&0xFF00 | uint16(value)
+		if h.APU.divi != 0 {
+			h.APU.divq = h.APU.divd / uint16(h.APU.divi)
+		}
+		return
+	}
+	if offs == 0x4205 {
+		// WRDIVH
+		h.APU.divd = h.APU.divd&0x00FF | uint16(value)<<8
+		if h.APU.divi != 0 {
+			h.APU.divq = h.APU.divd / uint16(h.APU.divi)
+		}
+		return
+	}
+	if offs == 0x4206 {
+		// WRDIVB
+		h.APU.divi = value
+		if h.APU.divi != 0 {
+			h.APU.divq = h.APU.divd / uint16(h.APU.divi)
+		}
 		return
 	}
 
