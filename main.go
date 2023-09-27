@@ -38,6 +38,7 @@ var (
 	setEntranceIDPC    uint32
 	loadSupertilePC    uint32
 	runFramePC         uint32
+	nmiRoutinePC       uint32
 	donePC             uint32
 )
 
@@ -347,6 +348,8 @@ func main() {
 
 			// load sanctuary entrance:
 			f := 0
+			fmt.Println("load sanctuary entrance")
+			//e.LoggerCPU = os.Stdout
 			e.HWIO.Dyn[setEntranceIDPC&0xffff-0x5000] = 0x02
 			if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
 				panic(err)
@@ -354,12 +357,12 @@ func main() {
 			f++
 			fmt.Println(f)
 			renderGifFrame()
+			e.LoggerCPU = nil
 
-			if false {
-				// run for 60 frames:
-				fmt.Println("run 60 frames")
-				for n := 0; n < 60; n++ {
-					//e.LoggerCPU = os.Stdout
+			if true {
+				fmt.Println("run 2 frames")
+				e.LoggerCPU = os.Stdout
+				for n := 0; n < 2; n++ {
 					if err = e.ExecAt(runFramePC, donePC); err != nil {
 						panic(err)
 					}
@@ -367,6 +370,9 @@ func main() {
 					fmt.Println(f)
 					renderGifFrame()
 				}
+
+				RenderGIF(&a, "test.gif")
+				return
 			}
 
 			// emulate until module=7,submodule=0:
@@ -964,24 +970,29 @@ func setupAlttp(e *System) {
 		a.SetBase(fastRomBank | 0x00_5000)
 		a.SEP(0x30)
 
-		a.Comment("InitializeTriforceIntro#_0CF03B: sets up initial state")
-		a.JSL(fastRomBank | 0x0C_F03B)
+		// Intro_InitializeDefaultGFX#_0CC208
+		a.Comment("Intro_InitializeDefaultGFX")
+		a.JSL(0x0C_C208)
+		//a.Comment("LoadDefaultGraphics#_00E310")
+		//a.JSL(fastRomBank | 0x00_E310)
+		//a.Comment("LoadDefaultTileTypes#_0FFD2A")
+		//a.JSL(fastRomBank | 0x0F_FD2A)
+		//a.Comment("InitializeTilesets#_00E1DB")
+		//a.JSL(fastRomBank | 0x00_E1DB)
+		//a.LDY_imm8_b(0x5D)
+		//a.Comment("DecompressAnimatedUnderworldTiles#_00D377")
+		//a.JSL(fastRomBank | 0x00_D377)
+
 		a.Comment("Intro_CreateTextPointers#_028022")
 		a.JSL(fastRomBank | 0x02_8022)
-		a.Comment("Overworld_LoadAllPalettes_long#_02802A")
-		a.JSL(fastRomBank | 0x02_802A)
 		a.Comment("DecompressFontGFX#_0EF572")
 		a.JSL(fastRomBank | 0x0E_F572)
+		a.Comment("LoadItemGFXIntoWRAM4BPPBuffer#_00D271")
+		a.JSL(fastRomBank | 0x00_D271)
 
-		a.Comment("LoadDefaultGraphics#_00E310")
-		a.JSL(fastRomBank | 0x00_E310)
-		a.Comment("LoadDefaultTileTypes#_0FFD2A")
-		a.JSL(fastRomBank | 0x0F_FD2A)
-		a.Comment("InitializeTilesets#_00E1DB")
-		a.JSL(fastRomBank | 0x00_E1DB)
-		a.LDY_imm8_b(0x5D)
-		a.Comment("DecompressAnimatedUnderworldTiles#_00D377")
-		a.JSL(fastRomBank | 0x00_D377)
+		// this initializes some important DMA transfer source addresses to eliminate garbage transfers to VRAM[0]
+		a.Comment("CopySaveToWRAM#_0CCEB2")
+		a.JSL(0x0C_CEB2)
 
 		// general world state:
 		a.Comment("disable rain")
@@ -1087,6 +1098,7 @@ func setupAlttp(e *System) {
 		a.JSR_abs(0x85FC)
 
 		// real NMI starts here:
+		nmiRoutinePC = a.Label("NMIRoutine")
 		a.Comment("prepare for PPU writes")
 		a.LDA_imm8_b(0x80)
 		a.STA_abs(0x2100) // INIDISP
@@ -1244,16 +1256,46 @@ func setupAlttp(e *System) {
 		a.WriteTextTo(e.Logger)
 	}
 
+	{
+		// patch out LoadSongBank#_008888
+		a = newEmitterAt(e, fastRomBank|0x00_8888, true)
+		a.RTS()
+		a.WriteTextTo(e.Logger)
+	}
+
 	//e.LoggerCPU = os.Stdout
 	_ = loadSupertilePC
 
-	// run the initialization code:
-	//e.LoggerCPU = os.Stdout
-	if err = e.ExecAt(0x00_5000, donePC); err != nil {
-		panic(err)
+	if false {
+		// run init:
+		if err = e.ExecAt(0x00_8000, fastRomBank|0x00_8034); err != nil {
+			panic(err)
+		}
+
+		// run a few frames to weed out bugs in NMI routines:
+		for n := 0; n < 60; n++ {
+			if err = e.ExecAt(runFramePC, donePC); err != nil {
+				panic(err)
+			}
+		}
+	} else {
+		// run the initialization code:
+		//e.LoggerCPU = os.Stdout
+		if err = e.ExecAt(0x00_5000, donePC); err != nil {
+			panic(err)
+		}
+		//e.LoggerCPU = nil
+
+		write16(e.WRAM[:], 0x0ADC, 0xA680)
+		write16(e.WRAM[:], 0xC00D, 0x0001)
+
+		// run a few NMI_PrepareSprites to weed out bugs in DMA transfers:
+		//for n := 0; n < 60; n++ {
+		//	if err = e.ExecAt(fastRomBank|0x805A, fastRomBank|0x805D); err != nil {
+		//		panic(err)
+		//	}
+		//}
 	}
-	//e.LoggerCPU = nil
-	//os.Exit(0)
 
 	return
 }

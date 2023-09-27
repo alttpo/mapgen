@@ -35,6 +35,7 @@ func (c *DMAChannel) Transfer(regs *DMARegs, ch int, h *HWIO) {
 		panic("PPU -> CPU DMA transfer not supported!")
 	} else {
 		// CPU -> PPU
+		fmt.Printf("dma: a=%06X, b=%04x, s=%04x; vaddr=%04x\n", aSrc, bDestAddr, siz, h.PPU.addr)
 	copyloop:
 		for {
 			switch mode {
