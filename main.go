@@ -67,42 +67,6 @@ var (
 	staticEntranceMap        bool
 )
 
-var dungeonSupertiles = map[uint8][]uint16{
-	0x00: {0x012, 0x002, 0x011, 0x021, 0x022, 0x032, 0x042, 0x041, 0x051, 0x061, 0x060, 0x050, 0x001, 0x072, 0x082, 0x081, 0x071, 0x070, 0x080, 0x052, 0x062},
-	0x02: {0x060, 0x061, 0x051, 0x041, 0x042, 0x032, 0x022, 0x021, 0x011, 0x002, 0x012, 0x062, 0x052, 0x001, 0x072, 0x082, 0x081, 0x071, 0x070, 0x080, 0x050},
-	0x04: {0x0c9, 0x0b9, 0x0b8, 0x0a8, 0x0a9, 0x089, 0x0aa, 0x0ba, 0x099, 0x0da, 0x0d9, 0x0d8, 0x0c8},
-	0x06: {0x084, 0x085, 0x075, 0x074, 0x073, 0x083, 0x063, 0x053, 0x043, 0x033},
-	0x08: {0x0e0, 0x0d0, 0x0c0, 0x0b0, 0x040, 0x030, 0x020},
-	0x0a: {0x028, 0x038, 0x037, 0x036, 0x046, 0x035, 0x034, 0x054, 0x026, 0x076, 0x066, 0x016, 0x006},
-	0x0c: {0x04a, 0x009, 0x03a, 0x00a, 0x02a, 0x02b, 0x03b, 0x04b, 0x01b, 0x00b, 0x01a, 0x06a, 0x05a, 0x019},
-	0x0e: {0x098, 0x0d2, 0x0c2, 0x0b2, 0x0b3, 0x0c3, 0x0a3, 0x0a2, 0x093, 0x092, 0x091, 0x0a0, 0x090, 0x0a1, 0x0b1, 0x0c1, 0x0d1, 0x097},
-	0x10: {0x056, 0x057, 0x067, 0x068, 0x058, 0x059, 0x049, 0x039, 0x029},
-	0x12: {0x00e, 0x01e, 0x03e, 0x04e, 0x06e, 0x05e, 0x07e, 0x09e, 0x0be, 0x04f, 0x0bf, 0x0ce, 0x0de, 0x09f, 0x0af, 0x0ae, 0x08e, 0x07f, 0x05f, 0x03f, 0x01f, 0x02e},
-	0x14: {0x077, 0x031, 0x027, 0x017, 0x007, 0x087, 0x0a7},
-	0x16: {0x0db, 0x0dc, 0x0cc, 0x0cb, 0x0bc, 0x045, 0x044, 0x0ac, 0x0bb, 0x0ab, 0x064, 0x065},
-	0x18: {0x023, 0x024, 0x014, 0x015, 0x0b6, 0x0c6, 0x0d6, 0x0c7, 0x0b7, 0x013, 0x004, 0x0b5, 0x0c5, 0x0d5, 0x0c4, 0x0b4, 0x0a4},
-	0x1a: {0x00c, 0x08c, 0x01c, 0x09c, 0x09b, 0x07d, 0x07c, 0x07b, 0x09d, 0x08d, 0x08b, 0x06b, 0x05b, 0x05c, 0x05d, 0x06d, 0x06c, 0x0a5, 0x095, 0x096, 0x03d, 0x04d, 0x0a6, 0x04c, 0x01d, 0x00d},
-	0xff: {0x104, 0x0f0, 0x0f1, 0x0f2, 0x0f3, 0x0f4, 0x0f5, 0x0e3, 0x0e2, 0x0f8, 0x0e8, 0x0fb, 0x0eb, 0x0fd, 0x0ed, 0x0fe, 0x0ee, 0x0ff, 0x0ef, 0x0df, 0x0f9, 0x0fa, 0x0ea, 0x0e1, 0x0e6, 0x0e7, 0x0e4, 0x0e5, 0x055, 0x010, 0x008, 0x018, 0x02f, 0x03c, 0x02c, 0x100, 0x11e, 0x101, 0x102, 0x117, 0x103, 0x105, 0x11f, 0x106, 0x107, 0x108, 0x109, 0x10a, 0x10b, 0x10c, 0x11b, 0x11c, 0x120, 0x110, 0x112, 0x111, 0x113, 0x114, 0x115, 0x10d, 0x10f, 0x119, 0x11d, 0x116, 0x121, 0x122, 0x118, 0x11a, 0x10e, 0x123, 0x124, 0x125, 0x126, 0x000, 0x003, 0x127},
-}
-
-var dungeonEntrances = map[uint8][]uint8{
-	0x00: {0x02, 0x81},
-	0x02: {0x03, 0x04, 0x05},
-	0x04: {0x08},
-	0x06: {0x09, 0x0a, 0x0b, 0x0c},
-	0x08: {0x24},
-	0x0a: {0x25},
-	0x0c: {0x26},
-	0x0e: {0x27},
-	0x10: {0x28, 0x29, 0x2a, 0x2b, 0x76, 0x77, 0x78, 0x79},
-	0x12: {0x2d},
-	0x14: {0x33},
-	0x16: {0x34},
-	0x18: {0x15, 0x18, 0x19, 0x35},
-	0x1a: {0x37},
-	0xff: {0x00, 0x01, 0x06, 0x07, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x16, 0x17, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x2c, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x36, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f, 0x80, 0x82, 0x83, 0x84},
-}
-
 var fastRomBank uint32 = 0
 
 var roomsWithUnreachableWarpPits map[Supertile]bool
@@ -274,7 +238,7 @@ func main() {
 	}
 
 	// generate supertile animations:
-	if false {
+	if true {
 		jobs := make(chan func(), runtime.NumCPU())
 		for i := 0; i < runtime.NumCPU(); i++ {
 			go func() {
@@ -284,9 +248,9 @@ func main() {
 			}()
 		}
 
-		//st16min, st16max := uint16(0), uint16(0x127)
+		st16min, st16max := uint16(0), uint16(0x127)
 		//st16min, st16max := uint16(0x57), uint16(0x57)
-		st16min, st16max := uint16(0x12), uint16(0x12)
+		//st16min, st16max := uint16(0x12), uint16(0x12)
 
 		wg := sync.WaitGroup{}
 		for st16 := st16min; st16 <= st16max; st16++ {
@@ -303,7 +267,7 @@ func main() {
 	}
 
 	// overworld screens:
-	if true {
+	if false {
 		func(initEmu *System) {
 			e := &System{
 				Logger:    nil,
@@ -346,23 +310,38 @@ func main() {
 				}
 			}
 
-			// load sanctuary entrance:
+			frameTrace := bytes.Buffer{}
 			f := 0
-			fmt.Println("load sanctuary entrance")
-			//e.LoggerCPU = os.Stdout
-			e.HWIO.Dyn[setEntranceIDPC&0xffff-0x5000] = 0x02
-			if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
-				panic(err)
-			}
-			f++
-			fmt.Println(f)
-			renderGifFrame()
-			e.LoggerCPU = nil
 
-			if true {
+			if false {
+				fmt.Println("module 05")
+				write8(e.WRAM[:], 0x10, 0x05)
+				write8(e.WRAM[:], 0x11, 0x00)
+				write8(e.WRAM[:], 0xB0, 0x00)
+				if err = e.ExecAt(runFramePC, donePC); err != nil {
+					panic(err)
+				}
+				renderGifFrame()
+			}
+
+			if false {
+				// load sanctuary entrance:
+				fmt.Println("load sanctuary entrance")
+				//e.HWIO.Dyn[setEntranceIDPC&0xffff-0x5000] = 0x02
+				e.HWIO.Dyn[setEntranceIDPC&0xffff-0x5000] = 0x00
+				if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
+					panic(err)
+				}
+				f++
+				fmt.Println(f)
+				renderGifFrame()
+			}
+
+			if false {
 				fmt.Println("run 2 frames")
-				e.LoggerCPU = os.Stdout
-				for n := 0; n < 2; n++ {
+				//e.Logger = os.Stdout
+				//e.LoggerCPU = os.Stdout
+				for n := 0; n < 30; n++ {
 					if err = e.ExecAt(runFramePC, donePC); err != nil {
 						panic(err)
 					}
@@ -375,34 +354,13 @@ func main() {
 				return
 			}
 
-			// emulate until module=7,submodule=0:
-			fmt.Println("wait until module 7")
-			for {
-				if read8(wram, 0x10) == 0x7 && read8(wram, 0x11) == 0 {
-					break
-				}
-				if err = e.ExecAt(runFramePC, donePC); err != nil {
-					panic(err)
-				}
-				f++
-				fmt.Println(f)
-				renderGifFrame()
-			}
-
 			if true {
-				// now immediately exit sanctuary to go to overworld:
-				//                            BYsSudlr AXLRvvvv
-				e.HWIO.ControllerInput[0] = 0b00000100_00000000
-				//if err = e.ExecAtUntil(loadOverworldPC, donePC, 200000); err != nil {
-				//	panic(err)
-				//}
-				// emulate until module=9,submodule=0:
-				fmt.Println("hold DOWN until module 9")
+				// emulate until module=7,submodule=0:
+				fmt.Println("wait until module 7")
 				for {
-					if read8(wram, 0x10) == 0x9 && read8(wram, 0x11) == 0 {
+					if read8(wram, 0x10) == 0x7 && read8(wram, 0x11) == 0 {
 						break
 					}
-					//e.LoggerCPU = os.Stdout
 					if err = e.ExecAt(runFramePC, donePC); err != nil {
 						panic(err)
 					}
@@ -410,7 +368,43 @@ func main() {
 					fmt.Println(f)
 					renderGifFrame()
 				}
+			}
 
+			if true {
+				// now immediately exit sanctuary to go to overworld:
+				//                            BYsSudlr AXLRvvvv
+				e.HWIO.ControllerInput[0] = 0b00000100_00000000
+				// emulate until module=9,submodule=0:
+				fmt.Println("hold DOWN until module 9")
+				for {
+					//if read8(wram, 0x10) != 0x7 /* && read8(wram, 0x11) == 0*/ {
+					//	// dump last frame's CPU trace:
+					//	frameTrace.WriteTo(os.Stdout)
+					//	break
+					//}
+					if read8(wram, 0x10) == 0x9 && read8(wram, 0x11) == 0 {
+						frameTrace.WriteTo(os.Stdout)
+						break
+					}
+					if f&63 == 63 {
+						RenderGIF(&a, "test.gif")
+					}
+					frameTrace.Reset()
+					e.Logger = &frameTrace
+					e.LoggerCPU = &frameTrace
+					//e.LoggerCPU = os.Stdout
+					if err = e.ExecAt(runFramePC, donePC); err != nil {
+						panic(err)
+					}
+					e.Logger = nil
+					e.LoggerCPU = nil
+					f++
+					fmt.Println(f)
+					renderGifFrame()
+				}
+			}
+
+			if true {
 				fmt.Println("release DOWN for 300 frames")
 				e.HWIO.ControllerInput[0] = 0b00000000_00000000
 				for n := 0; n < 300; n++ {
@@ -496,25 +490,13 @@ func main() {
 func roomMovement(st Supertile, initEmu *System) {
 	var err error
 
-	dungeonID := uint8(0xff)
-	exists := false
-findSupertile:
-	for id, sts := range dungeonSupertiles {
-		for _, s := range sts {
-			if s == uint16(st) {
-				dungeonID = id
-				exists = true
-				break findSupertile
-			}
-		}
-	}
-	if !exists {
-		// skip unused supertiles:
+	var eID uint8
+	if ste, ok := supertileEntrances[uint16(st)]; ok {
+		eID = ste[0]
+	} else {
+		// unused supertile:
 		return
 	}
-
-	// get first entrance ID:
-	eID := dungeonEntrances[dungeonID][0]
 
 	room := &RoomState{
 		Supertile: st,
@@ -540,6 +522,8 @@ findSupertile:
 	if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
 		panic(err)
 	}
+
+	dungeonID := read8(wram, 0x040C)
 
 	// load and draw selected supertile:
 	write16(wram, 0xA0, uint16(st))
@@ -970,13 +954,12 @@ func setupAlttp(e *System) {
 		a.SetBase(fastRomBank | 0x00_5000)
 		a.SEP(0x30)
 
-		// Intro_InitializeDefaultGFX#_0CC208
-		a.Comment("Intro_InitializeDefaultGFX")
+		a.Comment("LoadDefaultTileTypes#_0FFD2A")
+		a.JSL(fastRomBank | 0x0F_FD2A)
+		a.Comment("Intro_InitializeDefaultGFX#_0CC208")
 		a.JSL(0x0C_C208)
 		//a.Comment("LoadDefaultGraphics#_00E310")
 		//a.JSL(fastRomBank | 0x00_E310)
-		//a.Comment("LoadDefaultTileTypes#_0FFD2A")
-		//a.JSL(fastRomBank | 0x0F_FD2A)
 		//a.Comment("InitializeTilesets#_00E1DB")
 		//a.JSL(fastRomBank | 0x00_E1DB)
 		//a.LDY_imm8_b(0x5D)
@@ -989,6 +972,13 @@ func setupAlttp(e *System) {
 		a.JSL(fastRomBank | 0x0E_F572)
 		a.Comment("LoadItemGFXIntoWRAM4BPPBuffer#_00D271")
 		a.JSL(fastRomBank | 0x00_D271)
+
+		// initialize SRAM save file:
+		a.REP(0x10)
+		a.LDX_imm16_w(0)
+		a.SEP(0x10)
+		a.Comment("InitializeSaveFile#_0CDB3E")
+		a.JSL(0x0C_DB3E)
 
 		// this initializes some important DMA transfer source addresses to eliminate garbage transfers to VRAM[0]
 		a.Comment("CopySaveToWRAM#_0CCEB2")
@@ -1003,6 +993,10 @@ func setupAlttp(e *System) {
 		a.LDA_imm8_b(0x10)
 		a.STA_long(0x7EF3C6)
 
+		// non-zero mirroring to skip message prompt on file load:
+		a.STA_long(0x7EC011)
+
+		//a.BRA("mainRouting")
 		a.STP()
 		//a.BRA("loadEntrance")
 
@@ -1266,19 +1260,7 @@ func setupAlttp(e *System) {
 	//e.LoggerCPU = os.Stdout
 	_ = loadSupertilePC
 
-	if false {
-		// run init:
-		if err = e.ExecAt(0x00_8000, fastRomBank|0x00_8034); err != nil {
-			panic(err)
-		}
-
-		// run a few frames to weed out bugs in NMI routines:
-		for n := 0; n < 60; n++ {
-			if err = e.ExecAt(runFramePC, donePC); err != nil {
-				panic(err)
-			}
-		}
-	} else {
+	{
 		// run the initialization code:
 		//e.LoggerCPU = os.Stdout
 		if err = e.ExecAt(0x00_5000, donePC); err != nil {
@@ -1288,13 +1270,6 @@ func setupAlttp(e *System) {
 
 		write16(e.WRAM[:], 0x0ADC, 0xA680)
 		write16(e.WRAM[:], 0xC00D, 0x0001)
-
-		// run a few NMI_PrepareSprites to weed out bugs in DMA transfers:
-		//for n := 0; n < 60; n++ {
-		//	if err = e.ExecAt(fastRomBank|0x805A, fastRomBank|0x805D); err != nil {
-		//		panic(err)
-		//	}
-		//}
 	}
 
 	return

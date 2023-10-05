@@ -79,6 +79,7 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 		Stack []Supertile
 	}
 	dungeons := map[uint8]*Dungeon{}
+	supertileEntrances := map[uint16][]uint8{}
 
 	// create an all-encompassing EG map:
 	all := image.NewNRGBA(image.Rect(0, 0, 16*512, 19*512))
@@ -91,7 +92,9 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 		draw.Src)
 
 	// entrances...
-	for eID := uint8(0); eID < 0x85; eID++ {
+	eIDmin, eIDmax := uint8(0), uint8(0x84)
+	//eIDmin, eIDmax := uint8(0x7b), uint8(0x7b)
+	for eID := eIDmin; eID <= eIDmax; eID++ {
 		// skip attract mode cinematic entrances:
 		if eID >= 0x73 && eID <= 0x75 {
 			continue
@@ -148,6 +151,12 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 			dungeon.ContainsSupertile[st16] = struct{}{}
 			dungeon.Supertiles = append(dungeon.Supertiles, st)
 
+			{
+				ste := supertileEntrances[st16]
+				ste = append(ste, eID)
+				supertileEntrances[st16] = ste
+			}
+
 			// load the supertile into emulator memory:
 			*e.WRAM = entranceLoadedWRAM
 
@@ -155,6 +164,7 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 			write16(wram, 0xA0, uint16(st))
 			write16(wram, 0x048E, uint16(st))
 
+			//e.Logger = os.Stdout
 			//e.LoggerCPU = e.Logger
 			if err = e.ExecAt(loadSupertilePC, donePC); err != nil {
 				return
@@ -481,6 +491,23 @@ func reachabilityAnalysis(initEmu *System) (err error) {
 			for i, st := range sts {
 				fmt.Printf("0x%02x", uint16(st))
 				if i < len(sts)-1 {
+					fmt.Print(", ")
+				}
+			}
+			fmt.Print("},\n")
+		}
+		fmt.Print("}\n")
+
+		fmt.Print("\nvar supertileEntrances = map[uint16][]uint8{\n")
+		for st16 := uint16(0); st16 < 0x128; st16++ {
+			ste, ok := supertileEntrances[st16]
+			if !ok {
+				continue
+			}
+			fmt.Printf("\t0x%03x: {", st16)
+			for i, e := range ste {
+				fmt.Printf("0x%02x", uint16(e))
+				if i < len(ste)-1 {
 					fmt.Print(", ")
 				}
 			}
