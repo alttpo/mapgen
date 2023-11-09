@@ -229,6 +229,109 @@ func main() {
 		entranceMax = entranceCount - 1
 	}
 
+	// generate room object PNGs:
+	if true {
+		capturePNG := func(i uint32) {
+			pal, bg1p, bg2p, addColor, halfColor := renderBGLayers(
+				e.WRAM,
+				e.VRAM[0x4000:0x10000],
+			)
+
+			g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+			pal[0] = color.NRGBA{}
+			ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
+			if err = exportPNG(fmt.Sprintf("ro%03x.png", i), g); err != nil {
+				panic(err)
+			}
+		}
+
+		// load the entrance:
+		if true {
+			e.HWIO.Dyn[setEntranceIDPC&0xffff-0x5000] = 0x00
+			if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
+				panic(err)
+			}
+
+			// load and draw selected supertile:
+			e.Bus.Write16(0xA0, 0x114)
+			e.Bus.Write16(0x048E, 0x114)
+			if err = e.ExecAt(loadSupertilePC, donePC); err != nil {
+				panic(err)
+			}
+		}
+
+		for i := 0; i < 60; i++ {
+			if err = e.ExecAt(runFramePC, donePC); err != nil {
+				panic(err)
+			}
+		}
+
+		//os.WriteFile("vram.raw", e.VRAM[:], 0644)
+
+		// load tilemap pointers to $7E2000 into scratch space:
+		// see RoomDraw_DrawFloors#_0189DF
+		for i := 0; i < 11; i++ {
+			e.WRAM[0xBF+i*3] = e.Bus.Read8(uint32(0x0186F8 + 0 + i*3))
+			e.WRAM[0xC0+i*3] = e.Bus.Read8(uint32(0x0186F8 + 1 + i*3))
+			e.WRAM[0xC1+i*3] = e.Bus.Read8(uint32(0x0186F8 + 2 + i*3))
+		}
+
+		// type1_subtype_1:
+		for i := uint32(0); i <= 0xF7; i++ {
+			routine := e.Bus.Read16(0x01_8200 + i*2)
+			// if the routine starts with RTS then it doesn't do anything:
+			if e.Bus.Read8(0x01_0000|uint32(routine)) == 0x60 {
+				continue
+			}
+
+			fmt.Printf("%03x\n", i)
+			dataOffset := e.Bus.Read16(0x01_8000 + i*2)
+
+			a := asm.NewEmitter(e.HWIO.Dyn[0x600:], false)
+			a.REP(0x30)
+			// Y is the tilemap offset to write to
+			a.LDY_imm16_w(0x1040)
+			a.STY_dp(0x08)
+			a.LDA_imm16_w(dataOffset)
+			//a.TAX()
+			a.LDX_imm16_w(dataOffset)
+			a.JSR_abs(routine)
+			a.STP()
+			if err = a.Finalize(); err != nil {
+				panic(err)
+			}
+
+			// clear scratch:
+			for o := 0; o < 0x10; o++ {
+				e.WRAM[o] = 0
+			}
+
+			// clear tilemap:
+			for o := 0x2000; o < 0x6000; o += 2 {
+				// ($5600 - $4000) / $20
+				e.WRAM[o] = 0xB0
+				e.WRAM[o+1] = 0x00
+			}
+			e.WRAM[0xB7] = 0
+			e.WRAM[0xB8] = 0
+
+			// X size? (0..3)
+			e.WRAM[0xB2] = 0
+			e.WRAM[0xB3] = 0
+			// Y size? (0..3)
+			e.WRAM[0xB4] = 0
+			e.WRAM[0xB5] = 0
+
+			// run the object draw routine:
+			//e.LoggerCPU = os.Stdout
+			if err = e.ExecAt(uint32(0x01_5600), 0x015610); err != nil {
+				panic(err)
+			}
+
+			capturePNG(i)
+		}
+	}
+
 	// new simplified reachability:
 	if false {
 		err = reachabilityAnalysis(&e)
@@ -238,7 +341,7 @@ func main() {
 	}
 
 	// generate supertile animations:
-	if true {
+	if false {
 		jobs := make(chan func(), runtime.NumCPU())
 		for i := 0; i < runtime.NumCPU(); i++ {
 			go func() {
