@@ -234,14 +234,11 @@ func main() {
 	if true {
 		initWram := *e.WRAM
 
-		distinctEntranceIDsMap := make(map[uint8]struct{}, 255)
 		distinctEntranceIDs := make([]uint8, 0, 255)
-		for _, eIDs := range supertileEntrances {
+		entranceSupertilesMap := make(map[uint8][]uint16, 255)
+		for st, eIDs := range supertileEntrances {
 			for _, eID := range eIDs {
-				if _, ok := distinctEntranceIDsMap[eID]; ok {
-					continue
-				}
-				distinctEntranceIDsMap[eID] = struct{}{}
+				entranceSupertilesMap[eID] = append(entranceSupertilesMap[eID], st)
 				distinctEntranceIDs = append(distinctEntranceIDs, eID)
 			}
 		}
@@ -251,188 +248,206 @@ func main() {
 			BlockSet   uint8
 			PaletteSet [4]uint8
 		}
-		seenHeader := make(map[roomHeaderUniqueBits]uint8, 128)
+		seenHeader := make(map[roomHeaderUniqueBits]struct{}, 128)
 		for _, eID := range distinctEntranceIDs {
 			// copy in original WRAM as a reset:
 			*e.WRAM = initWram
+
 			// load entrance:
 			e.HWIO.Dyn[setEntranceIDPC&0xffff-0x5000] = eID
 			if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
 				panic(err)
 			}
 
-			// collect the blockset and palette that make this room header unique:
-			headerUniqueBits := roomHeaderUniqueBits{
-				BlockSet: e.Bus.Read8(0x0AA2),
-				PaletteSet: [4]uint8{
-					e.Bus.Read8(0x0AB6),
-					e.Bus.Read8(0x0AAC),
-					e.Bus.Read8(0x0AAD),
-					e.Bus.Read8(0x0AAE),
-				},
-			}
-			if _, ok := seenHeader[headerUniqueBits]; ok {
-				// already exported for this combo
-				continue
-			}
-
-			// mark this room header type as seen:
-			seenHeader[headerUniqueBits] = eID
-
-			fmt.Printf("eID = %02X; bs = %02X; p0 = %02X; p1 = %02X; p2 = %02X; p3 = %02X\n",
-				eID,
-				headerUniqueBits.BlockSet,
-				headerUniqueBits.PaletteSet[0],
-				headerUniqueBits.PaletteSet[1],
-				headerUniqueBits.PaletteSet[2],
-				headerUniqueBits.PaletteSet[3],
-			)
-
-			// run for a few frames to make sure things are settled:
-			for i := 0; i < 1; i++ {
-				if err = e.ExecAt(runFramePC, donePC); err != nil {
+			sts := entranceSupertilesMap[eID]
+			for _, st := range sts {
+				// load specific supertile:
+				e.Bus.Write16(0xA0, st)
+				e.Bus.Write16(0x048E, st)
+				if err = e.ExecAt(loadSupertilePC, donePC); err != nil {
 					panic(err)
 				}
-			}
 
-			//os.WriteFile("vram.raw", e.VRAM[:], 0644)
-
-			capturePNG := func(i uint32) {
-				pal, bg1p, bg2p, addColor, halfColor := renderBGLayers(
-					e.WRAM,
-					e.VRAM[0x4000:0x10000],
-				)
-
-				g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
-				pal[0] = color.NRGBA{}
-				ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
-				if err = exportPNG(fmt.Sprintf("o_%03X_e_%02X.png", i, eID), g); err != nil {
-					panic(err)
+				// collect the blockset and palette that make this room header unique:
+				headerUniqueBits := roomHeaderUniqueBits{
+					BlockSet: e.Bus.Read8(0x0AA2),
+					PaletteSet: [4]uint8{
+						e.Bus.Read8(0x0AB6),
+						e.Bus.Read8(0x0AAC),
+						e.Bus.Read8(0x0AAD),
+						e.Bus.Read8(0x0AAE),
+					},
 				}
-			}
-
-			// find an empty tile in VRAM BG tiles:
-			emptyTile := uint16(0)
-			for i := 0; i < 0x400; i++ {
-				isEmpty := true
-				for j := 0; j < 0x20; j++ {
-					if e.VRAM[0x4000+i<<5+j] != 0 {
-						isEmpty = false
-						break
-					}
-				}
-				if !isEmpty {
+				if _, ok := seenHeader[headerUniqueBits]; ok {
+					// already exported for this combo
 					continue
 				}
 
-				emptyTile = uint16(i)
-				//fmt.Printf("empty = %03x\n", emptyTile)
-				break
-			}
+				// mark this room header type as seen:
+				seenHeader[headerUniqueBits] = struct{}{}
 
-			//// clear tilemap:
-			//for o := 0x2000; o < 0x6000; o += 2 {
-			//	e.WRAM[o+0] = byte(emptyTile & 0xFF)
-			//	e.WRAM[o+1] = byte((emptyTile >> 8) & 0x03)
-			//}
-			//capturePNG(0xfff)
+				fmt.Printf("bs = %02X; pal = [%02X, %02X, %02X, %02X]\n",
+					headerUniqueBits.BlockSet,
+					headerUniqueBits.PaletteSet[0],
+					headerUniqueBits.PaletteSet[1],
+					headerUniqueBits.PaletteSet[2],
+					headerUniqueBits.PaletteSet[3],
+				)
 
-			idealXSize := [0x280]uint8{}
-			idealYSize := [0x280]uint8{}
+				suffix := fmt.Sprintf("bs_%02X_pal_%02X%02X%02X%02X",
+					headerUniqueBits.BlockSet,
+					headerUniqueBits.PaletteSet[0],
+					headerUniqueBits.PaletteSet[1],
+					headerUniqueBits.PaletteSet[2],
+					headerUniqueBits.PaletteSet[3],
+				)
 
-			// room objects which have the 0-size interpreted as a large default like 32 or 26:
-			idealXSize[0x000] = 1
-			idealXSize[0x001] = 1
-			idealXSize[0x002] = 1
-			idealXSize[0x060] = 1
-			idealXSize[0x061] = 1
-			idealXSize[0x062] = 1
-			idealXSize[0x090] = 1
-			idealXSize[0x091] = 1
-			idealXSize[0x092] = 1
-			idealXSize[0x093] = 1
-			idealXSize[0x0B6] = 1
-			idealXSize[0x0B7] = 1
-			idealXSize[0x0B8] = 1
-			idealXSize[0x0B9] = 1
-
-			renderRoomObject := func(i, j uint32, routineTable, dataOffsetTable uint32) {
-				routine := e.Bus.Read16(routineTable + j*2)
-				// if the routine starts with RTS then it doesn't do anything:
-				if e.Bus.Read8(0x01_0000|uint32(routine)) == 0x60 {
-					return
+				// run for a few frames to make sure things are settled:
+				for i := 0; i < 1; i++ {
+					if err = e.ExecAt(runFramePC, donePC); err != nil {
+						panic(err)
+					}
 				}
 
-				//fmt.Printf("%03x\n", i)
-				dataOffset := e.Bus.Read16(dataOffsetTable + j*2)
+				//os.WriteFile("vram.raw", e.VRAM[:], 0644)
 
-				a := asm.NewEmitter(e.HWIO.Dyn[0x600:], false)
-				a.REP(0x30)
-				// Y is the tilemap offset to write to
-				a.LDY_imm16_w(0x1040)
-				a.STY_dp(0x08)
-				a.LDA_imm16_w(dataOffset)
-				//a.TAX()
-				a.LDX_imm16_w(dataOffset)
-				a.JSR_abs(routine)
-				a.STP()
-				if err = a.Finalize(); err != nil {
-					panic(err)
+				capturePNG := func(i uint32) {
+					pal, bg1p, bg2p, addColor, halfColor := renderBGLayers(
+						e.WRAM,
+						e.VRAM[0x4000:0x10000],
+					)
+
+					g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+					pal[0] = color.NRGBA{}
+					ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
+					if err = exportPNG(fmt.Sprintf("o_%03X_%s.png", i, suffix), g); err != nil {
+						panic(err)
+					}
 				}
 
-				// clear scratch:
-				for o := 0; o < 0x10; o++ {
-					e.WRAM[o] = 0
+				// find an empty tile in VRAM BG tiles:
+				emptyTile := uint16(0)
+				for i := 0; i < 0x400; i++ {
+					isEmpty := true
+					for j := 0; j < 0x20; j++ {
+						if e.VRAM[0x4000+i<<5+j] != 0 {
+							isEmpty = false
+							break
+						}
+					}
+					if !isEmpty {
+						continue
+					}
+
+					emptyTile = uint16(i)
+					//fmt.Printf("empty = %03x\n", emptyTile)
+					break
 				}
 
-				// clear tilemap:
-				for o := 0x2000; o < 0x6000; o += 2 {
-					e.WRAM[o+0] = byte(emptyTile & 0xFF)
-					e.WRAM[o+1] = byte((emptyTile >> 8) & 0x03)
+				//// clear tilemap:
+				//for o := 0x2000; o < 0x6000; o += 2 {
+				//	e.WRAM[o+0] = byte(emptyTile & 0xFF)
+				//	e.WRAM[o+1] = byte((emptyTile >> 8) & 0x03)
+				//}
+				//capturePNG(0xfff)
+
+				idealXSize := [0x280]uint8{}
+				idealYSize := [0x280]uint8{}
+
+				// room objects which have the 0-size interpreted as a large default like 32 or 26:
+				idealXSize[0x000] = 1
+				idealXSize[0x001] = 1
+				idealXSize[0x002] = 1
+				idealXSize[0x060] = 1
+				idealXSize[0x061] = 1
+				idealXSize[0x062] = 1
+				idealXSize[0x090] = 1
+				idealXSize[0x091] = 1
+				idealXSize[0x092] = 1
+				idealXSize[0x093] = 1
+				idealXSize[0x0B6] = 1
+				idealXSize[0x0B7] = 1
+				idealXSize[0x0B8] = 1
+				idealXSize[0x0B9] = 1
+
+				renderRoomObject := func(i, j uint32, routineTable, dataOffsetTable uint32) {
+					routine := e.Bus.Read16(routineTable + j*2)
+					// if the routine starts with RTS then it doesn't do anything:
+					if e.Bus.Read8(0x01_0000|uint32(routine)) == 0x60 {
+						return
+					}
+
+					//fmt.Printf("%03x\n", i)
+					dataOffset := e.Bus.Read16(dataOffsetTable + j*2)
+
+					a := asm.NewEmitter(e.HWIO.Dyn[0x600:], false)
+					a.REP(0x30)
+					// Y is the tilemap offset to write to
+					a.LDY_imm16_w(0x1040)
+					a.STY_dp(0x08)
+					a.LDA_imm16_w(dataOffset)
+					//a.TAX()
+					a.LDX_imm16_w(dataOffset)
+					a.JSR_abs(routine)
+					a.STP()
+					if err = a.Finalize(); err != nil {
+						panic(err)
+					}
+
+					// clear scratch:
+					for o := 0; o < 0x10; o++ {
+						e.WRAM[o] = 0
+					}
+
+					// clear tilemap:
+					for o := 0x2000; o < 0x6000; o += 2 {
+						e.WRAM[o+0] = byte(emptyTile & 0xFF)
+						e.WRAM[o+1] = byte((emptyTile >> 8) & 0x03)
+					}
+					e.WRAM[0xB7] = 0
+					e.WRAM[0xB8] = 0
+
+					// X size? (0..3)
+					e.WRAM[0xB2] = idealXSize[i]
+					e.WRAM[0xB3] = 0
+					// Y size? (0..3)
+					e.WRAM[0xB4] = idealYSize[i]
+					e.WRAM[0xB5] = 0
+
+					// run the object draw routine:
+					//e.LoggerCPU = os.Stdout
+					if err = e.ExecAt(uint32(0x01_5600), 0x015610); err != nil {
+						panic(err)
+					}
+
+					capturePNG(i)
 				}
-				e.WRAM[0xB7] = 0
-				e.WRAM[0xB8] = 0
 
-				// X size? (0..3)
-				e.WRAM[0xB2] = idealXSize[i]
-				e.WRAM[0xB3] = 0
-				// Y size? (0..3)
-				e.WRAM[0xB4] = idealYSize[i]
-				e.WRAM[0xB5] = 0
-
-				// run the object draw routine:
-				//e.LoggerCPU = os.Stdout
-				if err = e.ExecAt(uint32(0x01_5600), 0x015610); err != nil {
-					panic(err)
+				// load tilemap pointers to $7E2000 into scratch space:
+				// see RoomDraw_DrawFloors#_0189DF
+				for i := 0; i < 11; i++ {
+					e.WRAM[0xBF+i*3] = e.Bus.Read8(uint32(0x0186F8 + 0 + i*3))
+					e.WRAM[0xC0+i*3] = e.Bus.Read8(uint32(0x0186F8 + 1 + i*3))
+					e.WRAM[0xC1+i*3] = e.Bus.Read8(uint32(0x0186F8 + 2 + i*3))
 				}
 
-				capturePNG(i)
-			}
+				// type1_subtype_1:
+				for i := uint32(0); i <= 0xF7; i++ {
+					j := i - 0
+					renderRoomObject(i, j, 0x01_8200, 0x01_8000)
+				}
 
-			// load tilemap pointers to $7E2000 into scratch space:
-			// see RoomDraw_DrawFloors#_0189DF
-			for i := 0; i < 11; i++ {
-				e.WRAM[0xBF+i*3] = e.Bus.Read8(uint32(0x0186F8 + 0 + i*3))
-				e.WRAM[0xC0+i*3] = e.Bus.Read8(uint32(0x0186F8 + 1 + i*3))
-				e.WRAM[0xC1+i*3] = e.Bus.Read8(uint32(0x0186F8 + 2 + i*3))
-			}
+				// type1_subtype_2:
+				for i := uint32(0x100); i <= 0x13F; i++ {
+					j := i - 0x100
+					renderRoomObject(i, j, 0x01_8470, 0x01_83F0)
+				}
 
-			// type1_subtype_1:
-			for i := uint32(0); i <= 0xF7; i++ {
-				j := i - 0
-				renderRoomObject(i, j, 0x01_8200, 0x01_8000)
-			}
-
-			// type1_subtype_2:
-			for i := uint32(0x100); i <= 0x13F; i++ {
-				j := i - 0x100
-				renderRoomObject(i, j, 0x01_8470, 0x01_83F0)
-			}
-
-			// type1_subtype_3:
-			for i := uint32(0x200); i <= 0x27F; i++ {
-				j := i - 0x200
-				renderRoomObject(i, j, 0x01_85F0, 0x01_84F0)
+				// type1_subtype_3:
+				for i := uint32(0x200); i <= 0x27F; i++ {
+					j := i - 0x200
+					renderRoomObject(i, j, 0x01_85F0, 0x01_84F0)
+				}
 			}
 		}
 	}
