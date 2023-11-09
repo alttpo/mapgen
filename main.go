@@ -247,26 +247,60 @@ func main() {
 
 		// load the entrance:
 		if true {
-			e.HWIO.Dyn[setEntranceIDPC&0xffff-0x5000] = 0x00
+			//eID := byte(0x00)
+			//st := uint16(0x114)
+			eID := dungeonEntrances[0x1a][0]
+			st := dungeonSupertiles[0x1a][0]
+
+			e.HWIO.Dyn[setEntranceIDPC&0xffff-0x5000] = eID
 			if err = e.ExecAt(loadEntrancePC, donePC); err != nil {
 				panic(err)
 			}
 
 			// load and draw selected supertile:
-			e.Bus.Write16(0xA0, 0x114)
-			e.Bus.Write16(0x048E, 0x114)
+			e.Bus.Write16(0xA0, st)
+			e.Bus.Write16(0x048E, st)
 			if err = e.ExecAt(loadSupertilePC, donePC); err != nil {
 				panic(err)
 			}
 		}
 
-		for i := 0; i < 60; i++ {
+		for i := 0; i < 20; i++ {
 			if err = e.ExecAt(runFramePC, donePC); err != nil {
 				panic(err)
 			}
 		}
 
-		//os.WriteFile("vram.raw", e.VRAM[:], 0644)
+		os.WriteFile("vram.raw", e.VRAM[:], 0644)
+
+		// ($5600 - $4000) / $20
+		//emptyTile := uint16(0xB0)
+
+		// find an empty tile in VRAM BG tiles:
+		emptyTile := uint16(0)
+		for i := 0; i < 0x400; i++ {
+			isEmpty := true
+			for j := 0; j < 0x20; j++ {
+				if e.VRAM[0x4000+i<<5+j] != 0 {
+					isEmpty = false
+					break
+				}
+			}
+			if !isEmpty {
+				continue
+			}
+
+			emptyTile = uint16(i)
+			fmt.Printf("empty = %03x\n", emptyTile)
+			break
+		}
+
+		// clear tilemap:
+		for o := 0x2000; o < 0x6000; o += 2 {
+			e.WRAM[o+0] = byte(emptyTile & 0xFF)
+			e.WRAM[o+1] = byte((emptyTile >> 8) & 0x03)
+		}
+		capturePNG(0xfff)
 
 		// load tilemap pointers to $7E2000 into scratch space:
 		// see RoomDraw_DrawFloors#_0189DF
@@ -308,9 +342,118 @@ func main() {
 
 			// clear tilemap:
 			for o := 0x2000; o < 0x6000; o += 2 {
-				// ($5600 - $4000) / $20
-				e.WRAM[o] = 0xB0
-				e.WRAM[o+1] = 0x00
+				e.WRAM[o+0] = byte(emptyTile & 0xFF)
+				e.WRAM[o+1] = byte((emptyTile >> 8) & 0x03)
+			}
+			e.WRAM[0xB7] = 0
+			e.WRAM[0xB8] = 0
+
+			// X size? (0..3)
+			e.WRAM[0xB2] = 0
+			e.WRAM[0xB3] = 0
+			// Y size? (0..3)
+			e.WRAM[0xB4] = 0
+			e.WRAM[0xB5] = 0
+
+			// run the object draw routine:
+			//e.LoggerCPU = os.Stdout
+			if err = e.ExecAt(uint32(0x01_5600), 0x015610); err != nil {
+				panic(err)
+			}
+
+			capturePNG(i)
+		}
+
+		// type1_subtype_2:
+		for i := uint32(0x100); i <= 0x13F; i++ {
+			j := i - 0x100
+			routine := e.Bus.Read16(0x01_8470 + j*2)
+			// if the routine starts with RTS then it doesn't do anything:
+			if e.Bus.Read8(0x01_0000|uint32(routine)) == 0x60 {
+				continue
+			}
+
+			fmt.Printf("%03x\n", i)
+			dataOffset := e.Bus.Read16(0x01_83F0 + j*2)
+
+			a := asm.NewEmitter(e.HWIO.Dyn[0x600:], false)
+			a.REP(0x30)
+			// Y is the tilemap offset to write to
+			a.LDY_imm16_w(0x1040)
+			a.STY_dp(0x08)
+			a.LDA_imm16_w(dataOffset)
+			//a.TAX()
+			a.LDX_imm16_w(dataOffset)
+			a.JSR_abs(routine)
+			a.STP()
+			if err = a.Finalize(); err != nil {
+				panic(err)
+			}
+
+			// clear scratch:
+			for o := 0; o < 0x10; o++ {
+				e.WRAM[o] = 0
+			}
+
+			// clear tilemap:
+			for o := 0x2000; o < 0x6000; o += 2 {
+				e.WRAM[o+0] = byte(emptyTile & 0xFF)
+				e.WRAM[o+1] = byte((emptyTile >> 8) & 0x03)
+			}
+			e.WRAM[0xB7] = 0
+			e.WRAM[0xB8] = 0
+
+			// X size? (0..3)
+			e.WRAM[0xB2] = 0
+			e.WRAM[0xB3] = 0
+			// Y size? (0..3)
+			e.WRAM[0xB4] = 0
+			e.WRAM[0xB5] = 0
+
+			// run the object draw routine:
+			//e.LoggerCPU = os.Stdout
+			if err = e.ExecAt(uint32(0x01_5600), 0x015610); err != nil {
+				panic(err)
+			}
+
+			capturePNG(i)
+		}
+
+		// type1_subtype_3:
+		for i := uint32(0x200); i <= 0x27F; i++ {
+			j := i - 0x200
+			routine := e.Bus.Read16(0x01_85F0 + j*2)
+			// if the routine starts with RTS then it doesn't do anything:
+			if e.Bus.Read8(0x01_0000|uint32(routine)) == 0x60 {
+				continue
+			}
+
+			fmt.Printf("%03x\n", i)
+			dataOffset := e.Bus.Read16(0x01_84F0 + j*2)
+
+			a := asm.NewEmitter(e.HWIO.Dyn[0x600:], false)
+			a.REP(0x30)
+			// Y is the tilemap offset to write to
+			a.LDY_imm16_w(0x1040)
+			a.STY_dp(0x08)
+			a.LDA_imm16_w(dataOffset)
+			//a.TAX()
+			a.LDX_imm16_w(dataOffset)
+			a.JSR_abs(routine)
+			a.STP()
+			if err = a.Finalize(); err != nil {
+				panic(err)
+			}
+
+			// clear scratch:
+			for o := 0; o < 0x10; o++ {
+				e.WRAM[o] = 0
+			}
+
+			// clear tilemap:
+			for o := 0x2000; o < 0x6000; o += 2 {
+				e.WRAM[o+0] = byte(emptyTile & 0xFF)
+				e.WRAM[o+1] = byte((emptyTile >> 8) & 0x03)
 			}
 			e.WRAM[0xB7] = 0
 			e.WRAM[0xB8] = 0

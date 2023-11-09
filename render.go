@@ -488,8 +488,6 @@ func renderBGLayers(wramArray *WRAMArray, tileset []uint8) (
 	//brightness := read8(wram, 0x13) & 0xF
 	//_ = brightness
 
-	//ioutil.WriteFile(fmt.Sprintf("data/%03X.vram", st), vram, 0644)
-
 	// extract palette:
 	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
 	pal = cgramToPalette(cgram)
