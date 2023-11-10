@@ -319,13 +319,14 @@ func main() {
 
 				//os.WriteFile("vram.raw", e.VRAM[:], 0644)
 
-				renderPaletted := func() (g *image.Paletted) {
+				renderPaletted := func(bounds image.Rectangle) (g *image.Paletted) {
 					pal, bg1p, bg2p, addColor, halfColor := renderBGLayers(
 						e.WRAM,
 						e.VRAM[0x4000:0x10000],
 					)
 
-					g = image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+					// bounds = image.Rect(0, 0, 512, 512)
+					g = image.NewPaletted(bounds, pal)
 					pal[0] = color.NRGBA{}
 					ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
 					return
@@ -432,22 +433,35 @@ func main() {
 						panic(err)
 					}
 
-					g := renderPaletted()
-					capturePNG(g, i)
-
 					// detect if room object uses animated tiles:
 					// per DecompressAnimatedUnderworldTiles#_00D377
 					// animated BG tiles are in VRAM $7600 to $7600+$400 bytes
 					// ($7600 - $4000) / $20 = $1B0
 					isAnimated := false
+					minRow, minCol := 0x40, 0x40
+					maxRow, maxCol := 0x00, 0x00
 					for o := 0x2000; o < 0x4000; o += 2 {
+						// detect if animated tiles are present:
 						z := binary.LittleEndian.Uint16(e.WRAM[o : o+2])
 						z &= 0x03FF
 						if z >= 0x1B0 && z < 0x1B0+0x20 {
 							isAnimated = true
-							break
+						}
+
+						// find actual bounds:
+						if z != emptyTile {
+							_, r, c := MapCoord((o - 0x2000) >> 1).RowCol()
+							minRow, maxRow = min(int(r), minRow), max(int(r), maxRow)
+							minCol, maxCol = min(int(c), minCol), max(int(c), maxCol)
 						}
 					}
+
+					bounds := image.Rect(minCol<<3, minRow<<3, (maxCol+1)<<3, (maxRow+1)<<3)
+					//fmt.Printf("%v\n", bounds)
+
+					g := renderPaletted(bounds)
+					g.Rect = g.Rect.Sub(g.Rect.Min)
+					capturePNG(g, i)
 
 					// render an animated GIF of the tile:
 					if isAnimated {
@@ -469,7 +483,8 @@ func main() {
 							}
 
 							// capture animation frame:
-							g = renderPaletted()
+							g = renderPaletted(bounds)
+							g.Rect = g.Rect.Sub(g.Rect.Min)
 							//if err = exportPNG(fmt.Sprintf("o_%03X_%s_fr_%02d.png", i, suffix, f), g); err != nil {
 							//	panic(err)
 							//}

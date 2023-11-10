@@ -345,10 +345,14 @@ func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted, dirt
 }
 
 func generateDeltaFrameWith0(prev, curr *image.Paletted) (delta *image.Paletted, dirty bool) {
-	delta = image.NewPaletted(image.Rect(0, 0, 512, 512), curr.Palette)
+	if curr.Bounds() != prev.Bounds() {
+		panic("bounds of prev and curr must match")
+	}
+
+	delta = image.NewPaletted(curr.Bounds(), curr.Palette)
 	dirty = false
-	for y := 0; y < 512; y++ {
-		for x := 0; x < 512; x++ {
+	for y := curr.Bounds().Min.Y; y < curr.Bounds().Max.Y; y++ {
+		for x := curr.Bounds().Min.X; x < curr.Bounds().Max.X; x++ {
 			cp := prev.ColorIndexAt(x, y)
 			cc := curr.ColorIndexAt(x, y)
 
@@ -814,8 +818,8 @@ func ComposeToPaletted(
 	hc := uint8(128)
 	mixedColors := make(map[uint16]uint8, 0x200)
 
-	for y := 0; y < 512; y++ {
-		for x := 0; x < 512; x++ {
+	for y := dst.Bounds().Min.Y; y < dst.Bounds().Max.Y; y++ {
+		for x := dst.Bounds().Min.X; x < dst.Bounds().Max.X; x++ {
 			var c uint8
 			c0 := bg1p[0].ColorIndexAt(x, y)
 			c1 := bg1p[1].ColorIndexAt(x, y)

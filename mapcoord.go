@@ -89,8 +89,8 @@ func (t MapCoord) Col() MapCoord {
 
 func (t MapCoord) RowCol() (layer, row, col uint16) {
 	layer = uint16(t & 0x1000)
-	row = uint16((t & 0x0FFF) >> 6)
-	col = uint16(t & 0x3F)
+	row = uint16((t & 0x0FC0) >> 6)
+	col = uint16(t & 0x003F)
 	return
 }
 
