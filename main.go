@@ -39,6 +39,7 @@ var (
 	setEntranceIDPC    uint32
 	loadSupertilePC    uint32
 	runFramePC         uint32
+	updateVRAMPC       uint32
 	nmiRoutinePC       uint32
 	donePC             uint32
 )
@@ -246,7 +247,7 @@ func main() {
 
 		type roomHeaderUniqueBits struct {
 			BlockSet   uint8
-			PaletteSet [4]uint8
+			PaletteSet [1]uint8
 		}
 		seenHeader := make(map[roomHeaderUniqueBits]struct{}, 128)
 		for _, eID := range distinctEntranceIDs {
@@ -259,8 +260,19 @@ func main() {
 				panic(err)
 			}
 
+			entranceWram := *e.WRAM
+
 			sts := entranceSupertilesMap[eID]
 			for _, st := range sts {
+				// reset WRAM:
+				*e.WRAM = entranceWram
+				// reset animation timer to advance frame:
+				e.WRAM[0xC00D] = 1
+				e.WRAM[0xC00E] = 0
+				// bg anim tile: $800
+				e.WRAM[0xC00F] = 0
+				e.WRAM[0xC010] = 8
+
 				// load specific supertile:
 				e.Bus.Write16(0xA0, st)
 				e.Bus.Write16(0x048E, st)
@@ -271,11 +283,13 @@ func main() {
 				// collect the blockset and palette that make this room header unique:
 				headerUniqueBits := roomHeaderUniqueBits{
 					BlockSet: e.Bus.Read8(0x0AA2),
-					PaletteSet: [4]uint8{
+					PaletteSet: [1]uint8{
+						// underworld palette:
 						e.Bus.Read8(0x0AB6),
-						e.Bus.Read8(0x0AAC),
-						e.Bus.Read8(0x0AAD),
-						e.Bus.Read8(0x0AAE),
+						// sprite palettes:
+						//e.Bus.Read8(0x0AAC),
+						//e.Bus.Read8(0x0AAD),
+						//e.Bus.Read8(0x0AAE),
 					},
 				}
 				if _, ok := seenHeader[headerUniqueBits]; ok {
@@ -286,40 +300,37 @@ func main() {
 				// mark this room header type as seen:
 				seenHeader[headerUniqueBits] = struct{}{}
 
-				fmt.Printf("bs = %02X; pal = [%02X, %02X, %02X, %02X]\n",
+				fmt.Printf("bs = %02X; pal = %02X\n",
 					headerUniqueBits.BlockSet,
 					headerUniqueBits.PaletteSet[0],
-					headerUniqueBits.PaletteSet[1],
-					headerUniqueBits.PaletteSet[2],
-					headerUniqueBits.PaletteSet[3],
 				)
 
-				suffix := fmt.Sprintf("bs_%02X_pal_%02X%02X%02X%02X",
+				suffix := fmt.Sprintf("bs_%02X_pal_%02X",
 					headerUniqueBits.BlockSet,
 					headerUniqueBits.PaletteSet[0],
-					headerUniqueBits.PaletteSet[1],
-					headerUniqueBits.PaletteSet[2],
-					headerUniqueBits.PaletteSet[3],
 				)
 
 				// run for a few frames to make sure things are settled:
-				for i := 0; i < 1; i++ {
-					if err = e.ExecAt(runFramePC, donePC); err != nil {
-						panic(err)
-					}
-				}
+				//for i := 0; i < 1; i++ {
+				//	if err = e.ExecAt(runFramePC, donePC); err != nil {
+				//		panic(err)
+				//	}
+				//}
 
 				//os.WriteFile("vram.raw", e.VRAM[:], 0644)
 
-				capturePNG := func(i uint32) {
+				renderPaletted := func() (g *image.Paletted) {
 					pal, bg1p, bg2p, addColor, halfColor := renderBGLayers(
 						e.WRAM,
 						e.VRAM[0x4000:0x10000],
 					)
 
-					g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+					g = image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
 					pal[0] = color.NRGBA{}
 					ComposeToPaletted(g, pal, bg1p, bg2p, addColor, halfColor)
+					return
+				}
+				capturePNG := func(g *image.Paletted, i uint32) {
 					if err = exportPNG(fmt.Sprintf("o_%03X_%s.png", i, suffix), g); err != nil {
 						panic(err)
 					}
@@ -389,6 +400,7 @@ func main() {
 					//a.TAX()
 					a.LDX_imm16_w(dataOffset)
 					a.JSR_abs(routine)
+					a.SEP(0x30)
 					a.STP()
 					if err = a.Finalize(); err != nil {
 						panic(err)
@@ -420,7 +432,73 @@ func main() {
 						panic(err)
 					}
 
-					capturePNG(i)
+					g := renderPaletted()
+					capturePNG(g, i)
+
+					// detect if room object uses animated tiles:
+					// per DecompressAnimatedUnderworldTiles#_00D377
+					// animated BG tiles are in VRAM $7600 to $7600+$400 bytes
+					// ($7600 - $4000) / $20 = $1B0
+					isAnimated := false
+					for o := 0x2000; o < 0x4000; o += 2 {
+						z := binary.LittleEndian.Uint16(e.WRAM[o : o+2])
+						z &= 0x03FF
+						if z >= 0x1B0 && z < 0x1B0+0x20 {
+							isAnimated = true
+							break
+						}
+					}
+
+					// render an animated GIF of the tile:
+					if isAnimated {
+						//fmt.Printf("o_%03X is animated\n", i)
+
+						// reset animation timer to advance frame:
+						e.WRAM[0xC00D] = 1
+						e.WRAM[0xC00E] = 0
+						// bg anim tile: $800
+						e.WRAM[0xC00F] = 0
+						e.WRAM[0xC010] = 8
+
+						ag := gif.GIF{}
+
+						// 3 animation frames * 9 wait frames
+						for f := 0; f < (3 * 9); f++ {
+							if err = e.ExecAt(updateVRAMPC, donePC); err != nil {
+								panic(err)
+							}
+
+							// capture animation frame:
+							g = renderPaletted()
+							//if err = exportPNG(fmt.Sprintf("o_%03X_%s_fr_%02d.png", i, suffix, f), g); err != nil {
+							//	panic(err)
+							//}
+
+							if ag.Image != nil {
+								// find delta with previous frame:
+								delta, dirty := generateDeltaFrameWith0(ag.Image[len(ag.Image)-1], g)
+								if !dirty {
+									// just increment last frame's delay if nothing changed:
+									ag.Delay[len(ag.Delay)-1] += 2
+								} else {
+									ag.Image = append(ag.Image, delta)
+									ag.Delay = append(ag.Delay, 2)
+									ag.Disposal = append(ag.Disposal, gif.DisposalNone)
+								}
+							} else {
+								// first frame:
+								ag.Image = append(ag.Image, g)
+								ag.Delay = append(ag.Delay, 2)
+								ag.Disposal = append(ag.Disposal, 0)
+							}
+						}
+
+						exportGIF(fmt.Sprintf("o_%03X_%s.gif", i, suffix), &ag)
+
+						if err = e.ExecAt(updateVRAMPC, donePC); err != nil {
+							panic(err)
+						}
+					}
 				}
 
 				// load tilemap pointers to $7E2000 into scratch space:
@@ -1309,7 +1387,7 @@ func setupAlttp(e *System) {
 		//a.Comment("clear submodule to avoid spotlight:")
 		//a.STZ_dp(0x11)
 
-		a.Label("updateVRAM")
+		updateVRAMPC = a.Label("updateVRAM")
 		// this code sets up the DMA transfer parameters for animated BG tiles:
 		a.Comment("NMI_PrepareSprites")
 		a.JSR_abs(0x85FC)

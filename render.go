@@ -344,6 +344,29 @@ func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted, dirt
 	return
 }
 
+func generateDeltaFrameWith0(prev, curr *image.Paletted) (delta *image.Paletted, dirty bool) {
+	delta = image.NewPaletted(image.Rect(0, 0, 512, 512), curr.Palette)
+	dirty = false
+	for y := 0; y < 512; y++ {
+		for x := 0; x < 512; x++ {
+			cp := prev.ColorIndexAt(x, y)
+			cc := curr.ColorIndexAt(x, y)
+
+			if cp == cc {
+				// set as transparent since nothing changed:
+				delta.SetColorIndex(x, y, 0)
+				continue
+			}
+
+			// use the current frame's color if it differs:
+			delta.SetColorIndex(x, y, cc)
+			dirty = true
+		}
+	}
+
+	return
+}
+
 func (room *RoomState) DrawSupertile() {
 	// gfx output is:
 	//  s.VRAM: $4000[0x2000] = 4bpp tile graphics
@@ -850,6 +873,10 @@ func RenderGIF(g *gif.GIF, fname string) {
 		g.Delay[f] = 300
 	}
 
+	exportGIF(fname, g)
+}
+
+func exportGIF(fname string, g *gif.GIF) {
 	// render GIF:
 	gw, err := os.OpenFile(
 		fname,
