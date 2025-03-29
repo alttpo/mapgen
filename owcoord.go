@@ -19,3 +19,33 @@ func (c OWCoord) RowCol() (row, col int) {
 	col = int(c & 0x7F)
 	return
 }
+
+func (c OWCoord) Traverse(d Direction, inc int) (OWCoord, Direction, bool) {
+	it := int(c)
+	row, col := c.RowCol()
+
+	switch d {
+	case DirNorth:
+		if row >= 0+inc {
+			return OWCoord(it - (inc << 7)), d, true
+		}
+		return c, d, false
+	case DirSouth:
+		if row <= 0x7F-inc {
+			return OWCoord(it + (inc << 7)), d, true
+		}
+		return c, d, false
+	case DirWest:
+		if col >= 0+inc {
+			return OWCoord(it - inc), d, true
+		}
+		return c, d, false
+	case DirEast:
+		if col <= 0x7F-inc {
+			return OWCoord(it + inc), d, true
+		}
+		return c, d, false
+	default:
+		panic("bad direction")
+	}
+}

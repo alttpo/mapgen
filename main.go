@@ -640,7 +640,7 @@ func main() {
 
 		// areas := make([]*Area, 0, 0x80)
 		for _, a := range areasMap {
-			a.Render()
+			// a.Render()
 			a.DrawOverlays()
 			exportPNG(fmt.Sprintf("ow%02X.png", uint8(a.AreaID)), a.RenderedNRGBA)
 		}
@@ -1632,6 +1632,8 @@ func setupAlttp(e *System) {
 		//a.SEP(0x30)
 		a.Comment("NMI_DoUpdates")
 		a.JSR_abs(uint16(alttp.NMI_DoUpdates & 0xFFFF)) // NMI_DoUpdates
+		a.Comment("NMI_ReadJoypads")
+		a.JSR_abs(uint16(alttp.NMI_ReadJoypads & 0xFFFF))
 		//a.PLB()
 		//a.PLD()
 

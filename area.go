@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"os"
 	"sync"
 	"unsafe"
 
@@ -322,26 +323,109 @@ func (a *Area) isHookable(v uint8) bool {
 }
 
 func (a *Area) Render() {
-	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&a.WRAM[0xC300])))[:]
-	pal := cgramToPalette(cgram)
-	bg1 := [2]*image.Paletted{
-		image.NewPaletted(image.Rect(0, 0, int(a.Width)*8, int(a.Height)*8), pal),
-		image.NewPaletted(image.Rect(0, 0, int(a.Width)*8, int(a.Height)*8), pal),
-	}
-	bg2 := [2]*image.Paletted{
-		image.NewPaletted(image.Rectangle{}, nil),
-		image.NewPaletted(image.Rectangle{}, nil),
-	}
-	renderMap8(bg1, int(a.Width), int(a.Height), a.Map8[:], a.VRAMTileSet[:], drawBG1p0, drawBG1p1)
+	a.RenderedNRGBA = image.NewNRGBA(image.Rect(0, 0, int(a.Width)*8, int(a.Height)*8))
+	g := a.RenderedNRGBA
 
-	// compose the priority layers:
-	g := image.NewNRGBA(image.Rect(0, 0, int(a.Width)*8, int(a.Height)*8))
-	ComposeToNonPalettedOW(g, pal, bg1, bg2, int(a.Width), false, false)
-	// renderSpriteLabels(g, wram, Supertile(read16(wram, 0xA0)))
-	// exportPNG("a-test-bg1p0.png", bg1[0])
-	// exportPNG("a-test-bg1p1.png", bg1[1])
+	{
+		cgram := (*(*[0x100]uint16)(unsafe.Pointer(&a.WRAM[0xC300])))[:]
+		pal := cgramToPalette(cgram)
+		bg1 := [2]*image.Paletted{
+			image.NewPaletted(image.Rect(0, 0, int(a.Width)*8, int(a.Height)*8), pal),
+			image.NewPaletted(image.Rect(0, 0, int(a.Width)*8, int(a.Height)*8), pal),
+		}
+		bg2 := [2]*image.Paletted{
+			image.NewPaletted(image.Rectangle{}, nil),
+			image.NewPaletted(image.Rectangle{}, nil),
+		}
+		renderMap8(bg1, int(a.Width), int(a.Height), a.Map8[:], a.VRAMTileSet[:], drawBG1p0, drawBG1p1)
 
-	a.RenderedNRGBA = g
+		// compose the priority layers:
+		ComposeToNonPalettedOW(g, pal, bg1, bg2, int(a.Width), false, false)
+	}
+
+	for {
+		e := System{}
+		e.InitEmulatorFrom(a.e)
+
+		m, sm := read8(e.WRAM[:], 0x10), read8(e.WRAM[:], 0x11)
+		if m != 0x09 || sm != 0x00 {
+			// we require submodule 00 to render sprites with:
+			break
+		}
+
+		// set data bank:
+		e.CPU.RDBR = 0x06
+
+		tlbgX, tlbgY := a.AbsXY(OWCoord(0))
+
+		// move in half-screen increments horizontally and vertically:
+		for row := 0; row < a.Height-0x20; row += 0x10 {
+			for col := 0; col < a.Width-0x20; col += 0x10 {
+				// set BG coordinates:
+				bgX, bgY := a.AbsXY(RowColToOWCoord(row, col))
+				fmt.Printf("%s: sprites: bg=(%04X, %04X)\n", a.AreaID, bgX, bgY)
+				e.Bus.Write16(0x7E00E2, uint16(bgX))
+				e.Bus.Write16(0x7E00E8, uint16(bgY))
+
+				// set link x/y coords for collision detection:
+				lkX, lkY := bgX+0x80, bgY+0x78
+				e.Bus.Write16(0x7E0022, uint16(lkX)) // X
+				e.Bus.Write16(0x7E0020, uint16(lkY)) // Y
+
+				// clear i-frames and invuln:
+				e.WRAM[0x031F] = 0
+				e.WRAM[0x037B] = 0
+
+				// execute Sprite_Main up until `LDX #$0F` which begins sprite_executesingle loop:
+				if err := e.ExecAtUntil(0x068328|fastRomBank, 0x06839F|fastRomBank, 0x200000); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+				} else {
+					for i := 0; i < 16; i++ {
+						// clear OAM slots:
+						for j := 0; j < 0x80; j++ {
+							e.WRAM[0x0800+(j<<2)+0] = 0
+							e.WRAM[0x0800+(j<<2)+1] = 0xF0
+							e.WRAM[0x0800+(j<<2)+2] = 0
+							e.WRAM[0x0800+(j<<2)+3] = 0
+							e.WRAM[0x0A20+j] = 0
+						}
+
+						// set X register to sprite slot:
+						e.Bus.Write16(0x7E0FA0, uint16(i))
+						e.CPU.RX = uint16(i)
+						e.CPU.RXl = uint8(i)
+
+						// 8 bit mode:
+						e.CPU.M = 1
+						e.CPU.X = 1
+
+						// 0x0684DD // JSR Sprite_ExecuteSingle with X=sprite slot
+						spriteExecuteSingle := 0x0683A4 | fastRomBank
+
+						// execute logic for the sprite:
+						if err := e.ExecAtUntil(spriteExecuteSingle, spriteExecuteSingle+3, 0x200000); err != nil {
+							fmt.Fprintln(os.Stderr, err)
+						} else {
+							renderOAMSprites(
+								g,
+								(*[0x100]uint16)(unsafe.Pointer(&e.WRAM[0xC500])),
+								e.VRAM,
+								e.HWIO.PPU.ObjTilemapAddress,
+								e.HWIO.PPU.ObjNameSelect,
+								(*[0x200]byte)(unsafe.Pointer(&e.WRAM[0x0800])),
+								(*[0x80]byte)(unsafe.Pointer(&e.WRAM[0x0A20])),
+								bgX-tlbgX,
+								bgY-tlbgY,
+							)
+						}
+					}
+				}
+			} // col
+		} // row
+
+		break
+	}
+
 	a.Rendered = g
 }
 

@@ -67,6 +67,8 @@ type ReachTask struct {
 	X                 uint16
 	Y                 uint16
 
+	FromAreaID AreaID
+
 	OWSS OWSS
 
 	OWEdges []OWEdge

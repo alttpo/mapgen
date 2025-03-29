@@ -83,3 +83,7 @@ func (d Direction) RotateCCW() Direction {
 	}
 	return d
 }
+
+func (d Direction) ToControllerInput() uint16 {
+	return uint16(1) << (8 + 3 - d)
+}

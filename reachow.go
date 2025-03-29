@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
 	"os"
 	"runtime/debug"
 	"unsafe"
@@ -21,9 +24,10 @@ type OWSS struct {
 }
 
 type OWEdge struct {
-	absX int
-	absY int
-	d    Direction
+	absX    int
+	absY    int
+	d       Direction
+	originC OWCoord
 }
 
 func createAreaIfNotExists(t T, loadArea func(T, *System)) (a *Area) {
@@ -157,41 +161,188 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 			// 	e.LoggerCPU = os.Stdout
 			// }
 
-			// set the AreaID to load and direction to transition from:
-			write8(wram, 0x8A, uint8(t.AreaID))
-			write8(wram, 0x040A, uint8(t.AreaID))
-			db := uint8(1 << (3 - t.OWSS.d))
-			write8(wram, 0x0410, db)
-			write8(wram, 0x0416, db)
-			write8(wram, 0x0418, uint8(t.OWSS.d))
-			write8(wram, 0x069C, uint8(t.OWSS.d))
-			if err = e.ExecAt(b02LoadOverworldTransitionPC, donePC); err != nil {
-				panic(err)
-			}
+			if true {
+				if m := read8(wram, 0x10); m != 0x09 && m != 0x0B {
+					panic("expected module == 09")
+				}
+				if read8(wram, 0x011) != 0x00 {
+					panic("expected submodule == 00")
+				}
 
-			// run frames until back to module $09:
-			for i := 0; i < 256; i++ {
-				if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
+				if read8(wram, 0x8A) != uint8(t.FromAreaID) {
+					panic("expected $8A == areaId")
+				}
+
+				// // set the FromAreaID:
+				// write8(wram, 0x8A, uint8(t.FromAreaID))
+				// write8(wram, 0x040A, uint8(t.FromAreaID))
+
+				tlX, tlY := t.FromAreaID.AbsXY(0)
+
+				passed := false
+				for j := 0; j < len(t.OWEdges); j++ {
+					// place Link at the transition point:
+					edge := t.OWEdges[j]
+					// back up:
+					c, _, _ := edge.originC.Traverse(edge.d.Opposite(), 1)
+					lkX, lkY := t.FromAreaID.AbsXY(c)
+					lkX, lkY = lkX, lkY+7
+					write16(wram, 0x22, uint16(lkX))
+					write16(wram, 0x20, uint16(lkY))
+					// set bg scroll offset:
+					write16(wram, 0xE2, uint16(lkX&0xFF00))
+					write16(wram, 0xE8, uint16(lkY&0xFF00))
+
+					draw.Draw(
+						t.Areas[t.FromAreaID].RenderedNRGBA,
+						image.Rect(lkX-tlX, lkY-tlY, lkX-tlX+1, lkY-tlY+1),
+						image.NewUniform(color.NRGBA{
+							R: 255,
+							G: 255,
+							B: 255,
+							A: 192,
+						}),
+						image.Point{},
+						draw.Over,
+					)
+
+					// LINKSTATE = 00 default
+					write8(wram, 0x5D, 0x00)
+
+					// set Link's direction:
+					// write8(wram, 0x2F, uint8(edge.d)*2)
+
+					// force controller input direction:
+					e.HWIO.ControllerInput[0] = edge.d.ToControllerInput()
+					fmt.Printf(
+						"%s: from %s dir=%s, input=%016b, link=(%04X,%04X)\n",
+						t.AreaID,
+						t.FromAreaID,
+						edge.d,
+						e.HWIO.ControllerInput[0],
+						read16(wram, 0x22),
+						read16(wram, 0x20),
+					)
+
+					// run frames until transition starts:
+					for i := 0; i < 32; i++ {
+						// wait until module 09 or 0B (overworld):
+						if m := read8(wram, 0x10); m == 0x09 || m == 0x0B {
+							// wait until transition begins:
+							if read8(wram, 0x011) != 0x00 {
+								break
+							}
+						}
+
+						fmt.Printf(
+							"%s: %02X, %02X, [$0416] = %02X, link=(%04X,%04X)\n",
+							t.AreaID,
+							read8(wram, 0x10),
+							read8(wram, 0x11),
+							read8(wram, 0x0416),
+							read16(wram, 0x22),
+							read16(wram, 0x20),
+						)
+
+						if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
+							panic(err)
+						}
+					}
+
+					// verify transition started:
+					if m := read8(wram, 0x10); m != 0x09 && m != 0x0B {
+						// panic("expected module == 09")
+						continue
+					}
+					if read8(wram, 0x011) == 0x00 {
+						// panic("expected submodule != 00")
+						continue
+					}
+
+					for i := 0; i < 256; i++ {
+						// wait until module 09 or 0B (overworld):
+						if m := read8(wram, 0x10); m == 0x09 || m == 0x0B {
+							// wait until transition ends:
+							if read8(wram, 0x011) == 0x00 {
+								break
+							}
+						}
+
+						fmt.Printf(
+							"%s: %02X, %02X, [$0416] = %02X, link=(%04X,%04X)\n",
+							t.AreaID,
+							read8(wram, 0x10),
+							read8(wram, 0x11),
+							read8(wram, 0x0416),
+							read16(wram, 0x22),
+							read16(wram, 0x20),
+						)
+
+						if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
+							panic(err)
+						}
+					}
+
+					// wait until transition ends:
+					if m := read8(wram, 0x10); m != 0x09 && m != 0x0B {
+						// panic("expected module == 09")
+						continue
+					}
+					if read8(wram, 0x011) != 0x00 {
+						// panic("expected submodule == 00")
+						continue
+					}
+
+					// verify areaId:
+					if read8(wram, 0x8A) != uint8(t.AreaID) {
+						// panic("expected areaID to change")
+						continue
+					}
+
+					passed = true
+					break
+				}
+
+				if !passed {
+					panic("failed to transition")
+				}
+
+				// clear inputs:
+				e.HWIO.ControllerInput[0] = 0
+			} else {
+				// this transition logic loads the correct area but it never returns to submodule 00:
+				db := uint8(1 << (3 - t.OWSS.d))
+				write8(wram, 0x0410, db)
+				write8(wram, 0x0416, db)
+				write8(wram, 0x0418, uint8(t.OWSS.d))
+				write8(wram, 0x069C, uint8(t.OWSS.d))
+				if err = e.ExecAt(b02LoadOverworldTransitionPC, donePC); err != nil {
 					panic(err)
 				}
 
-				// f++
-				// fmt.Printf(
-				// 	"f%04d: %02X %02X %02X\n",
-				// 	f,
-				// 	read8(wram, 0x010),
-				// 	read8(wram, 0x011),
-				// 	read8(wram, 0x0B0),
-				// )
+				// run frames until back to module $09:
+				for i := 0; i < 1024; i++ {
+					if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
+						panic(err)
+					}
 
-				// wait until module 09 or 0B (overworld):
-				if m := read8(wram, 0x10); m == 0x09 || m == 0x0B {
-					// wait until submodule goes back to 0:
-					if read8(wram, 0x011) == 0x00 {
-						break
+					// wait until module 09 or 0B (overworld):
+					if m := read8(wram, 0x10); m == 0x09 || m == 0x0B {
+						// wait until submodule goes back to 0:
+						if read8(wram, 0x011) == 0x00 {
+							break
+						}
 					}
 				}
+
+				if read8(wram, 0x011) != 0x00 {
+					panic("failed to reach submodule 00")
+
+					// meh; force it back to 0.
+					// write8(wram, 0x11, 0x00)
+				}
 			}
+
 			// e.LoggerCPU = nil
 		},
 	)
@@ -651,6 +802,8 @@ func createArea(t T, e *System) (a *Area) {
 		)
 	}
 
+	a.Render()
+
 	return
 }
 
@@ -820,7 +973,7 @@ func (a *Area) overworldFloodFill(q Q, t T) {
 		// transition to neighboring area at the edges:
 		if absX, absY, na, ok := a.NeighborEdge(c, d); ok {
 			fmt.Printf("%s: edge $%04X %s exit to %s starting at (%03X,%03X)\n", t.AreaID, uint16(c), d, na, absX, absY)
-			areaEdges[na] = append(areaEdges[na], OWEdge{absX: absX, absY: absY, d: d})
+			areaEdges[na] = append(areaEdges[na], OWEdge{absX: absX, absY: absY, d: d, originC: c})
 			continue
 		}
 
@@ -852,8 +1005,9 @@ func (a *Area) overworldFloodFill(q Q, t T) {
 			EntranceWRAM: &a.WRAMAfterLoaded,
 			EntranceVRAM: &a.VRAMAfterLoaded,
 
-			AreaID:  na,
-			OWEdges: el,
+			FromAreaID: a.AreaID,
+			AreaID:     na,
+			OWEdges:    el,
 		}, ReachTaskOverworldEdgeWorker)
 	}
 
@@ -871,8 +1025,9 @@ func (a *Area) overworldFloodFill(q Q, t T) {
 			EntranceWRAM: &a.WRAMAfterLoaded,
 			EntranceVRAM: &a.VRAMAfterLoaded,
 
-			AreaID:  na,
-			OWWarps: wl,
+			FromAreaID: a.AreaID,
+			AreaID:     na,
+			OWWarps:    wl,
 		}, ReachTaskOverworldWarpWorker)
 	}
 }

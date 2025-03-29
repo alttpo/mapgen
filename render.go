@@ -1190,6 +1190,7 @@ func renderOAMSprites(
 		tp += objNameSelect * uint32(tn)
 		tp &= 0xFFFF
 
+		fmt.Printf("spr{%d,%d,%d}\n", qx+x, qy+y+1, tp)
 		draw4bppTile(vram, tp, w, h, fh, fv, qx+x, qy+y+1, pal, setPx)
 
 		//drawShadowedString(
