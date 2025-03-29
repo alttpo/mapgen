@@ -193,6 +193,7 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 					write16(wram, 0xE2, uint16(lkX&0xFF00))
 					write16(wram, 0xE8, uint16(lkY&0xFF00))
 
+					// draw a point where we're transitioning from:
 					draw.Draw(
 						t.Areas[t.FromAreaID].RenderedNRGBA,
 						image.Rect(lkX-tlX, lkY-tlY, lkX-tlX+1, lkY-tlY+1),
@@ -462,7 +463,7 @@ func ReachTaskOverworldWarpWorker(q Q, t T) {
 func ReachTaskOverworldTransportWorker(q Q, t T) {
 	var err error
 
-	fmt.Printf("%s: overworld transport worker!\n", t.AreaID)
+	fmt.Printf("%d: overworld transport worker!\n", t.Transport)
 
 	e := &System{}
 	e.InitEmulatorFrom(t.InitialEmulator)
@@ -511,14 +512,14 @@ func ReachTaskOverworldTransportWorker(q Q, t T) {
 		panic("expected submodule $00")
 	}
 
+	t.AreaID = AreaID(read8(wram, 0x8A))
+	fmt.Printf("%d: overworld transport worker AreaID=%s\n", t.Transport, t.AreaID)
+
 	// e.LoggerCPU = nil
 
-	t.AreasLock.Lock()
-	a, ok := t.Areas[AreaID(read8(wram, 0x8A))]
-	t.AreasLock.Unlock()
-	if !ok {
-		panic("missing area to transport to!")
-	}
+	a := createAreaIfNotExists(t, func(t T, system *System) {
+		// already loaded.
+	})
 
 	if !a.IsLoaded {
 		return

@@ -570,6 +570,7 @@ func main() {
 		q.Wait()
 
 		// Load all LW flute transport locations:
+		fmt.Println("flute")
 		for i := 0; i < 8; i++ {
 			q.SubmitTask(
 				&ReachTask{
