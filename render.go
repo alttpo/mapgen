@@ -2100,6 +2100,7 @@ func renderEmulatedScreen(e *System) (g *image.Paletted) {
 	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&e.WRAM[0xC300])))[:]
 	pal = cgramToPalette(cgram)
 
+	wram := e.WRAM[:]
 	vramTileset := e.VRAM[0x4000:0x10000]
 
 	g = image.NewPaletted(image.Rect(0, 0, 256, 224), pal)
@@ -2131,20 +2132,27 @@ func renderEmulatedScreen(e *System) (g *image.Paletted) {
 		}
 	}
 
-	bg2hoffs := read16(e.WRAM[:], 0xE2)
-	bg2voffs := read16(e.WRAM[:], 0xE8)
+	bg2hoffs := read16(wram, 0xE2)
+	bg2voffs := read16(wram, 0xE8)
 
 	isOverworld := e.WRAM[0x1B] == 0
 	if isOverworld {
 		// grab area width,height extents in tiles:
 		var aw, ah uint32
-		if read16(e.WRAM[:], 0x0712) == 0 {
+		if read16(wram, 0x0712) == 0 {
 			aw = 64
 			ah = 64
 		} else {
 			aw = 128
 			ah = 128
 		}
+
+		// remove the area offset from BG2 scroll:
+		ax := read16(wram, 0x070C) << 3
+		ay := read16(wram, 0x0708)
+
+		bg2hoffs -= ax
+		bg2voffs -= ay
 
 		// decode map16 overworld from $7E2000 into both map8 and tile types:
 		map16 := e.WRAM[0x2000:]
@@ -2190,8 +2198,8 @@ func renderEmulatedScreen(e *System) (g *image.Paletted) {
 			image.NewPaletted(image.Rect(0, 0, 256, 224), pal),
 		}
 
-		bg1hoffs := read16(e.WRAM[:], 0xE0)
-		bg1voffs := read16(e.WRAM[:], 0xE6)
+		bg1hoffs := read16(wram, 0xE0)
+		bg1voffs := read16(wram, 0xE6)
 
 		bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&e.WRAM[0x4000])))[:]
 		//renderBGsep(bg1p, bg1wram, tileset, drawBG2p0, drawBG2p1)

@@ -463,12 +463,23 @@ func ReachTaskOverworldWarpWorker(q Q, t T) {
 func ReachTaskOverworldTransportWorker(q Q, t T) {
 	var err error
 
-	fmt.Printf("%d: overworld transport worker!\n", t.Transport)
+	fmt.Printf("%d: flute worker!\n", t.Transport)
 
 	e := &System{}
 	e.InitEmulatorFrom(t.InitialEmulator)
 
 	wram := (*e.WRAM)[:]
+
+	//e.CPU.OnPC = make(map[uint32]func())
+	//e.CPU.OnPC[0x0AB90D] = func() {
+	//	fmt.Printf("$0AB90D\n")
+	//}
+	//e.CPU.OnPC[0x02EA30] = func() {
+	//	fmt.Printf("$02EA30\n")
+	//}
+	//e.CPU.OnPC[0x02AA24] = func() {
+	//	fmt.Printf("SET $0712\n")
+	//}
 
 	// move to flute menu module/submodule:
 	write8(wram, 0x10, 0x0E)
@@ -483,16 +494,10 @@ func ReachTaskOverworldTransportWorker(q Q, t T) {
 	var d deltaGifEmitter
 
 	// run frames until back to module $09:
-	if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
-		panic(err)
-	}
-	for i := 0; i < 512; i++ {
+	for i := 0; i < 60; i++ {
 		if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
 			panic(err)
 		}
-
-		g := renderEmulatedScreen(e)
-		d.EmitFrame(g)
 
 		// wait until module 09 or 0B (overworld):
 		if m := read8(wram, 0x10); m == 0x09 || m == 0x0B {
@@ -503,8 +508,10 @@ func ReachTaskOverworldTransportWorker(q Q, t T) {
 		}
 	}
 
+	os.WriteFile(fmt.Sprintf("flu%d.wram", t.Transport), wram, 0600)
+
 	// let the duck drop off Link:
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 220; i++ {
 		if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
 			panic(err)
 		}
@@ -525,7 +532,7 @@ func ReachTaskOverworldTransportWorker(q Q, t T) {
 	}
 
 	t.AreaID = AreaID(read8(wram, 0x8A))
-	fmt.Printf("%d: overworld transport worker AreaID=%s\n", t.Transport, t.AreaID)
+	fmt.Printf("%d: flute worker; AreaID=%s\n", t.Transport, t.AreaID)
 
 	// e.LoggerCPU = nil
 
@@ -540,6 +547,8 @@ func ReachTaskOverworldTransportWorker(q Q, t T) {
 		t.Areas[t.AreaID] = a
 	}
 	t.AreasLock.Unlock()
+
+	fmt.Printf("%s: flute; aw=%d,ah=%d\n", t.AreaID, a.Width, a.Height)
 
 	ax := read16(wram, 0x070C) << 3
 	ay := read16(wram, 0x0708)
@@ -642,7 +651,6 @@ func createArea(t T, e *System) (a *Area) {
 
 	ah := uint32(a.Height)
 	aw := uint32(a.Width)
-	fmt.Printf("aw=%d,ah=%d\n", aw, ah)
 
 	// find overworld tile secrets and reveal them:
 	{
