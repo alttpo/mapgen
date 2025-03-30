@@ -320,10 +320,10 @@ func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted, dirt
 	transparentIndex := uint8(255)
 	pal[transparentIndex] = color.Transparent
 
-	delta = image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+	delta = image.NewPaletted(curr.Rect, pal)
 	dirty = false
-	for y := 0; y < 512; y++ {
-		for x := 0; x < 512; x++ {
+	for y := delta.Rect.Min.Y; y < delta.Rect.Max.Y; y++ {
+		for x := delta.Rect.Min.X; x < delta.Rect.Max.X; x++ {
 			cp := prev.ColorIndexAt(x, y)
 			cc := curr.ColorIndexAt(x, y)
 
@@ -340,6 +340,34 @@ func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted, dirt
 	}
 
 	return
+}
+
+type deltaGifEmitter struct {
+	GIF       gif.GIF
+	lastFrame *image.Paletted
+}
+
+func (d *deltaGifEmitter) EmitFrame(g *image.Paletted) {
+	delta := g
+	disposal := byte(0)
+
+	if optimizeGIFs && d.GIF.Image != nil {
+		dirty := false
+		delta, dirty = generateDeltaFrame(d.lastFrame, g)
+		disposal = gif.DisposalNone
+
+		if !dirty {
+			// just increment last frame's delay if nothing changed:
+			d.GIF.Delay[len(d.GIF.Delay)-1] += 2
+			d.lastFrame = g
+			return
+		}
+	}
+
+	d.GIF.Image = append(d.GIF.Image, delta)
+	d.GIF.Delay = append(d.GIF.Delay, 2)
+	d.GIF.Disposal = append(d.GIF.Disposal, disposal)
+	d.lastFrame = g
 }
 
 func renderSupertile(room *RoomState) {
@@ -1555,7 +1583,6 @@ type PPURegs struct {
 func (p *PPURegs) UsesColorMath() bool {
 	return p.CGADDSUB&0x13 != 0
 }
-
 func ComposePrioritizedToPaletted(
 	dst *image.Paletted,
 	pal color.Palette,
@@ -1563,6 +1590,28 @@ func ComposePrioritizedToPaletted(
 	bg2p [2]*image.Paletted,
 	obj [4]*image.Paletted,
 	ppu PPURegs,
+) {
+	ComposePrioritizedToPalettedWH(
+		dst,
+		pal,
+		bg1p,
+		bg2p,
+		obj,
+		ppu,
+		512,
+		512,
+	)
+}
+
+func ComposePrioritizedToPalettedWH(
+	dst *image.Paletted,
+	pal color.Palette,
+	bg1p [2]*image.Paletted,
+	bg2p [2]*image.Paletted,
+	obj [4]*image.Paletted,
+	ppu PPURegs,
+	w int,
+	h int,
 ) {
 	// ordered from highest to lowest priority:
 	layers := [8]*image.Paletted{
@@ -1630,13 +1679,17 @@ func ComposePrioritizedToPaletted(
 
 	if ppu.UsesColorMath() {
 		// discover colors in use for color-math palettization:
-		for y := 0; y < 512; y++ {
-			for x := 0; x < 512; x++ {
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
 				// main:
 				for l := 0; l < 8; l++ {
 					if !layerEnable[l][0] {
 						continue
 					}
+					if layers[l] == nil {
+						continue
+					}
+
 					c := layers[l].ColorIndexAt(x, y)
 					if c == 0 {
 						continue
@@ -1654,6 +1707,10 @@ func ComposePrioritizedToPaletted(
 						if !layerEnable[l][1] {
 							continue
 						}
+						if layers[l] == nil {
+							continue
+						}
+
 						c := layers[l].ColorIndexAt(x, y)
 						if c == 0 {
 							continue
@@ -1674,8 +1731,8 @@ func ComposePrioritizedToPaletted(
 		}
 	}
 
-	for y := 0; y < 512; y++ {
-		for x := 0; x < 512; x++ {
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
 			lm := 8
 			cm, cs := uint8(0), uint8(0)
 			// main:
@@ -1683,6 +1740,10 @@ func ComposePrioritizedToPaletted(
 				if !layerEnable[l][0] {
 					continue
 				}
+				if layers[l] == nil {
+					continue
+				}
+
 				c := layers[l].ColorIndexAt(x, y)
 				if c == 0 {
 					continue
@@ -1698,6 +1759,10 @@ func ComposePrioritizedToPaletted(
 					if !layerEnable[l][1] {
 						continue
 					}
+					if layers[l] == nil {
+						continue
+					}
+
 					c := layers[l].ColorIndexAt(x, y)
 					if c == 0 {
 						continue
@@ -1920,10 +1985,31 @@ func renderVRAMBG(g [2]*image.Paletted, bg []uint16, tiles []uint8, p0 bool, p1 
 	}
 }
 
+func renderVRAMBG32(g [2]*image.Paletted, bg []uint16, tiles []uint8, p0 bool, p1 bool) {
+	for ty := 0; ty < 32; ty++ {
+		for tx := 0; tx < 32; tx++ {
+			a := uint32(ty&31)*32 + uint32(tx&31)
+			a += (uint32(tx) & 0x20) << 5
+			a += (uint32(ty) & 0x20) << 6
+			z := bg[a]
+
+			// priority check:
+			p := (z & 0x2000) >> 13
+			if p == 0 && !p0 {
+				continue
+			}
+			if p == 1 && !p1 {
+				continue
+			}
+			draw4bppBGTile(g[p], z, tiles, tx, ty)
+		}
+	}
+}
+
 func renderMap8(g [2]*image.Paletted, aw, ah int, map8 []uint16, tiles []uint8, p0 bool, p1 bool) {
 	a := uint32(0)
-	for ty := (0); ty < ah; a, ty = uint32(ty+1)*0x80, ty+1 {
-		for tx := (0); tx < aw; tx, a = tx+1, a+1 {
+	for ty := 0; ty < ah; a, ty = uint32(ty+1)*0x80, ty+1 {
+		for tx := 0; tx < aw; tx, a = tx+1, a+1 {
 			z := map8[a]
 
 			// priority check:
@@ -1939,7 +2025,37 @@ func renderMap8(g [2]*image.Paletted, aw, ah int, map8 []uint16, tiles []uint8, 
 	}
 }
 
+func renderMap8Screen(g [2]*image.Paletted, hoffs, voffs uint16, aw, ah, stride uint32, map8 []uint16, tiles []uint8, p0, p1 bool) {
+	ox := int(hoffs) & 7
+	oy := int(voffs) & 7
+	va := uint32(voffs) >> 3
+	hmask := aw - 1 // 0x3F or 0x7F
+	vmask := ah - 1 // 0x3F or 0x7F
+	for ty := 0; ty < 33; ty, va = ty+1, va+1 {
+		ha := uint32(hoffs) >> 3
+		for tx := 0; tx < 33; tx, ha = tx+1, ha+1 {
+			a := (va&vmask)*stride + (ha & hmask)
+			z := map8[a]
+
+			// priority check:
+			p := (z & 0x2000) >> 13
+			if p == 0 && !p0 {
+				continue
+			}
+			if p == 1 && !p1 {
+				continue
+			}
+
+			draw4bppBGTileOffset(g[p], z, tiles, tx, ty, -ox, -oy)
+		}
+	}
+}
+
 func draw4bppBGTile(g *image.Paletted, z uint16, tiles []uint8, tx int, ty int) {
+	draw4bppBGTileOffset(g, z, tiles, tx, ty, 0, 0)
+}
+
+func draw4bppBGTileOffset(g *image.Paletted, z uint16, tiles []uint8, tx int, ty int, ox int, oy int) {
 	//High     Low          Legend->  c: Starting character (tile) number
 	//vhopppcc cccccccc               h: horizontal flip  v: vertical flip
 	//                                p: palette number   o: priority bit
@@ -1971,7 +2087,137 @@ func draw4bppBGTile(g *image.Paletted, z uint16, tiles []uint8, tx int, ty int) 
 				continue
 			}
 
-			g.SetColorIndex(tx<<3+fx, ty<<3+fy, p+i)
+			g.SetColorIndex(tx<<3+fx+ox, ty<<3+fy+oy, p+i)
 		}
 	}
+}
+
+func renderEmulatedScreen(e *System) (g *image.Paletted) {
+	var pal color.Palette
+	var bg1p, bg2p [2]*image.Paletted
+	var obj [4]*image.Paletted
+
+	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&e.WRAM[0xC300])))[:]
+	pal = cgramToPalette(cgram)
+
+	vramTileset := e.VRAM[0x4000:0x10000]
+
+	g = image.NewPaletted(image.Rect(0, 0, 256, 224), pal)
+	for j := 0; j < 4; j++ {
+		obj[j] = image.NewPaletted(image.Rect(0, 0, 256, 224), pal)
+	}
+	bg2p = [2]*image.Paletted{
+		image.NewPaletted(image.Rect(0, 0, 256, 224), pal),
+		image.NewPaletted(image.Rect(0, 0, 256, 224), pal),
+	}
+
+	// capture PPU regs to be written:
+	var ppu PPURegs
+	if false {
+		// from PPU $21xx writes: (doesn't work without NMI handler executing)
+		ppu = PPURegs{
+			TM:       e.HWIO.PPU.Regs[0x2C],
+			TS:       e.HWIO.PPU.Regs[0x2D],
+			CGWSEL:   e.HWIO.PPU.Regs[0x30],
+			CGADDSUB: e.HWIO.PPU.Regs[0x31],
+		}
+	} else {
+		// from WRAM:
+		ppu = PPURegs{
+			TM:       e.WRAM[0x1C],
+			TS:       e.WRAM[0x1D],
+			CGWSEL:   e.WRAM[0x99],
+			CGADDSUB: e.WRAM[0x9A],
+		}
+	}
+
+	bg2hoffs := read16(e.WRAM[:], 0xE2)
+	bg2voffs := read16(e.WRAM[:], 0xE8)
+
+	isOverworld := e.WRAM[0x1B] == 0
+	if isOverworld {
+		// grab area width,height extents in tiles:
+		var aw, ah uint32
+		if read16(e.WRAM[:], 0x0712) == 0 {
+			aw = 64
+			ah = 64
+		} else {
+			aw = 128
+			ah = 128
+		}
+
+		// decode map16 overworld from $7E2000 into both map8 and tile types:
+		map16 := e.WRAM[0x2000:]
+		map8 := [0x4000]uint16{}
+		for row := uint32(0); row < ah; row += 2 {
+			for col := uint32(0); col < aw; col += 2 {
+				// read map16 blocks from WRAM at $7E2000:
+				m16 := uint32(read16(map16, (row*0x40+col))) << 3
+
+				// translate into map8 blocks via Map16Definitions:
+				df := [4]uint16{
+					e.Bus.Read16(alttp.Map16Definitions + (m16 + 0)),
+					e.Bus.Read16(alttp.Map16Definitions + (m16 + 2)),
+					e.Bus.Read16(alttp.Map16Definitions + (m16 + 4)),
+					e.Bus.Read16(alttp.Map16Definitions + (m16 + 6)),
+				}
+
+				// store map8 blocks:
+				map8[((row+0)*0x80)+(col+0)] = df[0]
+				map8[((row+0)*0x80)+(col+1)] = df[1]
+				map8[((row+1)*0x80)+(col+0)] = df[2]
+				map8[((row+1)*0x80)+(col+1)] = df[3]
+			}
+		}
+
+		bg1p = [2]*image.Paletted{
+			image.NewPaletted(image.Rectangle{}, nil),
+			image.NewPaletted(image.Rectangle{}, nil),
+		}
+
+		renderMap8Screen(bg2p, bg2hoffs, bg2voffs, aw, ah, 128, map8[:], vramTileset[:], drawBG2p0, drawBG2p1)
+	} else {
+		// underworld:
+
+		bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&e.WRAM[0x2000])))[:]
+		//renderBGsep(bg2p, bg2wram, tileset, drawBG1p0, drawBG1p1)
+		renderMap8Screen(bg2p, bg2hoffs, bg2voffs, 64, 64, 64, bg2wram, vramTileset[:], drawBG2p0, drawBG2p1)
+
+		// if !isDark {
+
+		bg1p = [2]*image.Paletted{
+			image.NewPaletted(image.Rect(0, 0, 256, 224), pal),
+			image.NewPaletted(image.Rect(0, 0, 256, 224), pal),
+		}
+
+		bg1hoffs := read16(e.WRAM[:], 0xE0)
+		bg1voffs := read16(e.WRAM[:], 0xE6)
+
+		bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&e.WRAM[0x4000])))[:]
+		//renderBGsep(bg1p, bg1wram, tileset, drawBG2p0, drawBG2p1)
+		renderMap8Screen(bg1p, bg1hoffs, bg1voffs, 64, 64, 64, bg1wram, vramTileset[:], drawBG1p0, drawBG1p1)
+		// }
+	}
+
+	g.Palette = pal
+	obj[0].Palette = pal
+	obj[1].Palette = pal
+	obj[2].Palette = pal
+	obj[3].Palette = pal
+
+	// render sprites:
+	renderOAMSpritesPrioritizedPaletted(
+		obj,
+		e.VRAM,
+		e.HWIO.PPU.ObjTilemapAddress,
+		e.HWIO.PPU.ObjNameSelect,
+		(*[0x200]byte)(unsafe.Pointer(&e.WRAM[0x0800])),
+		(*[0x80]byte)(unsafe.Pointer(&e.WRAM[0x0A20])),
+		0,
+		0,
+	)
+
+	ComposePrioritizedToPalettedWH(g, pal, bg1p, bg2p, obj, ppu, 256, 224)
+
+	return g
 }

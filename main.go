@@ -571,6 +571,24 @@ func main() {
 
 		// Load all LW flute transport locations:
 		fmt.Println("flute")
+		*e.WRAM = areasMap[0x2C].WRAMAfterLoaded
+		*e.VRAM = *areasMap[0x2C].e.VRAM
+		for i := 0; i < 60; i++ {
+			if err = e.ExecAt(runFramePC, donePC); err != nil {
+				panic(err)
+			}
+
+			m, sm := read8(wram, 0x10), read8(wram, 0x11)
+			if m == 0x09 && sm == 0x00 {
+				break
+			} else if m == 0x1B && sm != 0 {
+				// this should exit a choice menu:
+				write8(wram, 0x11, 0)
+				// choice 0, Link's house:
+				write8(wram, 0x1CE8, 0)
+			}
+		}
+
 		for i := 0; i < 8; i++ {
 			q.SubmitTask(
 				&ReachTask{

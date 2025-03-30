@@ -423,3 +423,11 @@ func (h *HWIO) Clear() {
 func (h *HWIO) Dump(address uint32) []byte {
 	return nil
 }
+
+func (h *HWIO) BG1ChrAddress() uint32 {
+	return uint32(h.PPU.Regs[0x0B]&0xF) << 13
+}
+
+func (h *HWIO) BG2ChrAddress() uint32 {
+	return uint32((h.PPU.Regs[0x0B]>>4)&0xF) << 13
+}

@@ -480,20 +480,19 @@ func ReachTaskOverworldTransportWorker(q Q, t T) {
 	// transport destination to load:
 	write8(wram, 0x1AF0, t.Transport)
 
+	var d deltaGifEmitter
+
 	// run frames until back to module $09:
+	if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
+		panic(err)
+	}
 	for i := 0; i < 512; i++ {
 		if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
 			panic(err)
 		}
 
-		// f++
-		// fmt.Printf(
-		// 	"f%04d: %02X %02X %02X\n",
-		// 	f,
-		// 	read8(wram, 0x010),
-		// 	read8(wram, 0x011),
-		// 	read8(wram, 0x0B0),
-		// )
+		g := renderEmulatedScreen(e)
+		d.EmitFrame(g)
 
 		// wait until module 09 or 0B (overworld):
 		if m := read8(wram, 0x10); m == 0x09 || m == 0x0B {
@@ -503,6 +502,19 @@ func ReachTaskOverworldTransportWorker(q Q, t T) {
 			}
 		}
 	}
+
+	// let the duck drop off Link:
+	for i := 0; i < 200; i++ {
+		if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
+			panic(err)
+		}
+
+		g := renderEmulatedScreen(e)
+		d.EmitFrame(g)
+	}
+
+	RenderGIF(&d.GIF, fmt.Sprintf("flu%d.gif", t.Transport))
+	_ = d
 
 	// verify module, submodule:
 	if read8(wram, 0x10) != 0x09 {
@@ -517,13 +529,17 @@ func ReachTaskOverworldTransportWorker(q Q, t T) {
 
 	// e.LoggerCPU = nil
 
-	a := createAreaIfNotExists(t, func(t T, system *System) {
-		// already loaded.
-	})
+	t.AreasLock.Lock()
 
-	if !a.IsLoaded {
-		return
+	var ok bool
+	var a *Area
+	if a, ok = t.Areas[t.AreaID]; !ok {
+		fmt.Printf("%s: load\n", t.AreaID)
+
+		a = createArea(t, e)
+		t.Areas[t.AreaID] = a
 	}
+	t.AreasLock.Unlock()
 
 	ax := read16(wram, 0x070C) << 3
 	ay := read16(wram, 0x0708)
@@ -614,11 +630,19 @@ func createArea(t T, e *System) (a *Area) {
 	map16 := wram[0x2000:]
 
 	// grab area width,height extents in tiles:
-	a.Height = int(read16(wram, 0x070A)+0x10) >> 3
-	a.Width = int(read16(wram, 0x070E) + 0x02)
+	if read16(wram, 0x0712) == 0 {
+		a.Width = 64
+		a.Height = 64
+	} else {
+		a.Width = 128
+		a.Height = 128
+	}
+	//a.Height = int(read16(wram, 0x070A)+0x10) >> 3
+	//a.Width = int(read16(wram, 0x070E) + 0x02)
 
 	ah := uint32(a.Height)
 	aw := uint32(a.Width)
+	fmt.Printf("aw=%d,ah=%d\n", aw, ah)
 
 	// find overworld tile secrets and reveal them:
 	{
@@ -804,6 +828,14 @@ func createArea(t T, e *System) (a *Area) {
 	}
 
 	a.Render()
+
+	{
+		g := renderEmulatedScreen(e)
+
+		if err := exportPNG(fmt.Sprintf("scow%02X.png", uint8(a.AreaID)), g); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "failed to export scow%02X.png: %v\n", uint8(a.AreaID), err)
+		}
+	}
 
 	return
 }
