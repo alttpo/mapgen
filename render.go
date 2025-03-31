@@ -345,6 +345,16 @@ func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted, dirt
 type deltaGifEmitter struct {
 	GIF       gif.GIF
 	lastFrame *image.Paletted
+	g         *image.Paletted
+}
+
+func (d *deltaGifEmitter) RenderGIF(name string) {
+	RenderGIF(&d.GIF, name)
+}
+
+func (d *deltaGifEmitter) EmitEmulatedFrame(e *System) {
+	d.g = renderEmulatedScreen(d.g, e)
+	d.EmitFrame(d.g)
 }
 
 func (d *deltaGifEmitter) EmitFrame(g *image.Paletted) {
@@ -2095,7 +2105,7 @@ func draw4bppBGTileOffset(g *image.Paletted, z uint16, tiles []uint8, tx int, ty
 	}
 }
 
-func renderEmulatedScreen(e *System) (g *image.Paletted) {
+func renderEmulatedScreen(g *image.Paletted, e *System) *image.Paletted {
 	var pal color.Palette
 	var bg1p, bg2p [2]*image.Paletted
 	var obj [4]*image.Paletted
@@ -2106,7 +2116,10 @@ func renderEmulatedScreen(e *System) (g *image.Paletted) {
 	wram := e.WRAM[:]
 	vramTileset := e.VRAM[0x4000:0x10000]
 
-	g = image.NewPaletted(image.Rect(0, 0, 256, 224), pal)
+	if g == nil {
+		g = image.NewPaletted(image.Rect(0, 0, 256, 224), pal)
+	}
+
 	for j := 0; j < 4; j++ {
 		obj[j] = image.NewPaletted(image.Rect(0, 0, 256, 224), pal)
 	}

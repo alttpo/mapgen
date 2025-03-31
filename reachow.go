@@ -179,6 +179,8 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 
 				tlX, tlY := t.FromAreaID.AbsXY(0)
 
+				var d deltaGifEmitter
+
 				passed := false
 				for j := 0; j < len(t.OWEdges); j++ {
 					// place Link at the transition point:
@@ -248,7 +250,11 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 						if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
 							panic(err)
 						}
+
+						d.EmitEmulatedFrame(e)
 					}
+
+					d.RenderGIF(fmt.Sprintf("trow%02X.%04X.gif", uint8(t.AreaID), uint16(c)))
 
 					// verify transition started:
 					if m := read8(wram, 0x10); m != 0x09 && m != 0x0B {
@@ -491,8 +497,6 @@ func ReachTaskOverworldTransportWorker(q Q, t T) {
 	// transport destination to load:
 	write8(wram, 0x1AF0, t.Transport)
 
-	var d deltaGifEmitter
-
 	// run frames until back to module $09:
 	for i := 0; i < 60; i++ {
 		if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
@@ -510,17 +514,18 @@ func ReachTaskOverworldTransportWorker(q Q, t T) {
 
 	os.WriteFile(fmt.Sprintf("flu%d.wram", t.Transport), wram, 0600)
 
+	var d deltaGifEmitter
+
 	// let the duck drop off Link:
 	for i := 0; i < 220; i++ {
 		if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
 			panic(err)
 		}
 
-		g := renderEmulatedScreen(e)
-		d.EmitFrame(g)
+		d.EmitEmulatedFrame(e)
 	}
 
-	RenderGIF(&d.GIF, fmt.Sprintf("flu%d.gif", t.Transport))
+	d.RenderGIF(fmt.Sprintf("flu%d.gif", t.Transport))
 	_ = d
 
 	// verify module, submodule:
@@ -838,7 +843,7 @@ func createArea(t T, e *System) (a *Area) {
 	a.Render()
 
 	{
-		g := renderEmulatedScreen(e)
+		g := renderEmulatedScreen(nil, e)
 
 		if err := exportPNG(fmt.Sprintf("scow%02X.png", uint8(a.AreaID)), g); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "failed to export scow%02X.png: %v\n", uint8(a.AreaID), err)
