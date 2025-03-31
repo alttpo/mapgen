@@ -1578,6 +1578,9 @@ type PPURegs struct {
 	TS       uint8 // 0x1D  == $212D
 	CGWSEL   uint8 // 0x99  == $2130
 	CGADDSUB uint8 // 0x9A  == $2131
+	COLDATAR uint8 // 0x9C
+	COLDATAG uint8 // 0x9D
+	COLDATAB uint8 // 0x9E
 }
 
 func (p *PPURegs) UsesColorMath() bool {
@@ -2129,6 +2132,9 @@ func renderEmulatedScreen(e *System) (g *image.Paletted) {
 			TS:       e.WRAM[0x1D],
 			CGWSEL:   e.WRAM[0x99],
 			CGADDSUB: e.WRAM[0x9A],
+			COLDATAR: e.WRAM[0x9C],
+			COLDATAG: e.WRAM[0x9D],
+			COLDATAB: e.WRAM[0x9E],
 		}
 	}
 
@@ -2225,6 +2231,17 @@ func renderEmulatedScreen(e *System) (g *image.Paletted) {
 		0,
 	)
 
+	fmt.Printf(
+		"%s: PPU; TM=$%08b, TS=%08b, CGWSEL=%08b, CGADDSUB=%08b, R=%02X, G=%02X, B=%02X\n",
+		AreaID(e.WRAM[0x8A]),
+		ppu.TM,
+		ppu.TS,
+		ppu.CGWSEL,
+		ppu.CGADDSUB,
+		ppu.COLDATAR,
+		ppu.COLDATAG,
+		ppu.COLDATAB,
+	)
 	ComposePrioritizedToPalettedWH(g, pal, bg1p, bg2p, obj, ppu, 256, 224)
 
 	return g
