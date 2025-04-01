@@ -228,7 +228,7 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 					var d deltaGifEmitter
 
 					// run frames until transition starts:
-					for i := 0; i < 32; i++ {
+					for i := 0; i < 96; i++ {
 						// wait until module 09 or 0B (overworld):
 						if m := read8(wram, 0x10); m == 0x09 || m == 0x0B {
 							// wait until transition begins:
@@ -259,7 +259,8 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 						// panic("expected module == 09")
 						continue
 					}
-					if read8(wram, 0x011) == 0x00 {
+					if expected, got := uint8(0x00), read8(wram, 0x011); got == expected {
+						fmt.Printf("%s: edge failed; expected NOT submodule %02X got %02X!\n", t.AreaID, expected, got)
 						// panic("expected submodule != 00")
 						continue
 					}
@@ -824,7 +825,7 @@ func createArea(t T, e *System) (a *Area) {
 		}
 	}
 
-	if true {
+	if false {
 		os.WriteFile(
 			fmt.Sprintf("ow%02X.map16", uint8(a.AreaID)),
 			(*(*[0x80 * 0x80]byte)(unsafe.Pointer(&wram[0x2000])))[:],

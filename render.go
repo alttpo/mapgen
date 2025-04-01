@@ -2015,9 +2015,15 @@ func renderVRAMBG(g [2]*image.Paletted, bg []uint16, tiles []uint8, p0 bool, p1 
 	}
 }
 
-func renderVRAMBG32(g [2]*image.Paletted, bg []uint16, tiles []uint8, p0 bool, p1 bool) {
-	for ty := 0; ty < 32; ty++ {
-		for tx := 0; tx < 32; tx++ {
+func renderVRAMBG32(g [2]*image.Paletted, hoffs, voffs uint16, bg []uint16, tiles []uint8, p0 bool, p1 bool) {
+	ox := int(hoffs & 7)
+	oy := int(voffs & 7)
+	va := int(voffs >> 3)
+	for y := 0; y < 33; y = y + 1 {
+		ha := int(hoffs >> 3)
+		for x := 0; x < 33; x = x + 1 {
+			tx := (x + ha) & 63
+			ty := (y + va) & 63
 			a := uint32(ty&31)*32 + uint32(tx&31)
 			a += (uint32(tx) & 0x20) << 5
 			a += (uint32(ty) & 0x20) << 6
@@ -2031,7 +2037,7 @@ func renderVRAMBG32(g [2]*image.Paletted, bg []uint16, tiles []uint8, p0 bool, p
 			if p == 1 && !p1 {
 				continue
 			}
-			draw4bppBGTile(g[p], z, tiles, tx, ty)
+			draw4bppBGTileOffset(g[p], z, tiles, x, y, ox, oy)
 		}
 	}
 }
@@ -2187,39 +2193,44 @@ func renderEmulatedScreen(g *image.Paletted, e *System) *image.Paletted {
 		ax := read16(wram, 0x070C) << 3
 		ay := read16(wram, 0x0708)
 
-		bg2hoffs -= ax
-		bg2voffs -= ay
-
-		// decode map16 overworld from $7E2000 into both map8 and tile types:
-		map16 := wram[0x2000:]
-		map8 := [0x4000]uint16{}
-		for row := uint32(0); row < ah; row += 2 {
-			for col := uint32(0); col < aw; col += 2 {
-				// read map16 blocks from WRAM at $7E2000:
-				m16 := uint32(read16(map16, (row*0x40+col))) << 3
-
-				// translate into map8 blocks via Map16Definitions:
-				df := [4]uint16{
-					e.Bus.Read16(alttp.Map16Definitions + (m16 + 0)),
-					e.Bus.Read16(alttp.Map16Definitions + (m16 + 2)),
-					e.Bus.Read16(alttp.Map16Definitions + (m16 + 4)),
-					e.Bus.Read16(alttp.Map16Definitions + (m16 + 6)),
-				}
-
-				// store map8 blocks:
-				map8[((row+0)*0x80)+(col+0)] = df[0]
-				map8[((row+0)*0x80)+(col+1)] = df[1]
-				map8[((row+1)*0x80)+(col+0)] = df[2]
-				map8[((row+1)*0x80)+(col+1)] = df[3]
-			}
-		}
-
 		bg1p = [2]*image.Paletted{
 			image.NewPaletted(image.Rectangle{}, nil),
 			image.NewPaletted(image.Rectangle{}, nil),
 		}
 
-		renderMap8Screen(bg2p, bg2hoffs, bg2voffs, aw, ah, 128, map8[:], vramTileset[:], drawBG2p0, drawBG2p1)
+		if false {
+			// decode map16 overworld from $7E2000 into both map8 and tile types:
+			bg2hoffs -= ax
+			bg2voffs -= ay
+			map16 := wram[0x2000:]
+			map8 := [0x4000]uint16{}
+			for row := uint32(0); row < ah; row += 2 {
+				for col := uint32(0); col < aw; col += 2 {
+					// read map16 blocks from WRAM at $7E2000:
+					m16 := uint32(read16(map16, (row*0x40+col))) << 3
+
+					// translate into map8 blocks via Map16Definitions:
+					df := [4]uint16{
+						e.Bus.Read16(alttp.Map16Definitions + (m16 + 0)),
+						e.Bus.Read16(alttp.Map16Definitions + (m16 + 2)),
+						e.Bus.Read16(alttp.Map16Definitions + (m16 + 4)),
+						e.Bus.Read16(alttp.Map16Definitions + (m16 + 6)),
+					}
+
+					// store map8 blocks:
+					map8[((row+0)*0x80)+(col+0)] = df[0]
+					map8[((row+0)*0x80)+(col+1)] = df[1]
+					map8[((row+1)*0x80)+(col+0)] = df[2]
+					map8[((row+1)*0x80)+(col+1)] = df[3]
+				}
+			}
+
+			renderMap8Screen(bg2p, bg2hoffs, bg2voffs, aw, ah, 128, map8[:], vramTileset[:], drawBG2p0, drawBG2p1)
+		} else {
+			// render direct from VRAM:
+			renderVRAMBG32(bg2p, bg2hoffs, bg2voffs, (*(*[0x2000]uint16)(unsafe.Pointer(&e.VRAM[0x0000])))[:], vramTileset[:], drawBG2p0, drawBG2p1)
+			//renderMap8Screen(bg2p, bg2hoffs, bg2voffs, 64, 64, 32, (*(*[0x2000]uint16)(unsafe.Pointer(&e.VRAM[0x0000])))[:], vramTileset[:], drawBG2p0, drawBG2p1)
+		}
 	} else {
 		// underworld:
 
