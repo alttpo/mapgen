@@ -322,6 +322,13 @@ func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted, dirt
 
 	delta = image.NewPaletted(curr.Rect, pal)
 	dirty = false
+	//fmt.Printf(
+	//	"gif:delta:rect=(%d,%d,%d,%d)\n",
+	//	delta.Rect.Min.X,
+	//	delta.Rect.Min.Y,
+	//	delta.Rect.Max.X,
+	//	delta.Rect.Max.Y,
+	//)
 	for y := delta.Rect.Min.Y; y < delta.Rect.Max.Y; y++ {
 		for x := delta.Rect.Min.X; x < delta.Rect.Max.X; x++ {
 			cp := prev.ColorIndexAt(x, y)
@@ -345,16 +352,20 @@ func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted, dirt
 type deltaGifEmitter struct {
 	GIF       gif.GIF
 	lastFrame *image.Paletted
-	g         *image.Paletted
+	//g           *image.Paletted
+	frames      int
+	framesDirty int
+	framesClean int
 }
 
 func (d *deltaGifEmitter) RenderGIF(name string) {
+	fmt.Printf("gif: %s: %d frames (%d dirty, %d clean)\n", name, d.frames, d.framesDirty, d.framesClean)
 	RenderGIF(&d.GIF, name)
 }
 
 func (d *deltaGifEmitter) EmitEmulatedFrame(e *System) {
-	d.g = renderEmulatedScreen(d.g, e)
-	d.EmitFrame(d.g)
+	g := renderEmulatedScreen(nil, e)
+	d.EmitFrame(g)
 }
 
 func (d *deltaGifEmitter) EmitFrame(g *image.Paletted) {
@@ -370,6 +381,8 @@ func (d *deltaGifEmitter) EmitFrame(g *image.Paletted) {
 			// just increment last frame's delay if nothing changed:
 			d.GIF.Delay[len(d.GIF.Delay)-1] += 2
 			d.lastFrame = g
+			d.frames++
+			d.framesClean++
 			return
 		}
 	}
@@ -377,7 +390,11 @@ func (d *deltaGifEmitter) EmitFrame(g *image.Paletted) {
 	d.GIF.Image = append(d.GIF.Image, delta)
 	d.GIF.Delay = append(d.GIF.Delay, 2)
 	d.GIF.Disposal = append(d.GIF.Disposal, disposal)
+
 	d.lastFrame = g
+
+	d.frames++
+	d.framesDirty++
 }
 
 func renderSupertile(room *RoomState) {
@@ -2110,11 +2127,11 @@ func renderEmulatedScreen(g *image.Paletted, e *System) *image.Paletted {
 	var bg1p, bg2p [2]*image.Paletted
 	var obj [4]*image.Paletted
 
-	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&e.WRAM[0xC300])))[:]
-	pal = cgramToPalette(cgram)
-
 	wram := e.WRAM[:]
 	vramTileset := e.VRAM[0x4000:0x10000]
+
+	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
+	pal = cgramToPalette(cgram)
 
 	if g == nil {
 		g = image.NewPaletted(image.Rect(0, 0, 256, 224), pal)
@@ -2141,20 +2158,20 @@ func renderEmulatedScreen(g *image.Paletted, e *System) *image.Paletted {
 	} else {
 		// from WRAM:
 		ppu = PPURegs{
-			TM:       e.WRAM[0x1C],
-			TS:       e.WRAM[0x1D],
-			CGWSEL:   e.WRAM[0x99],
-			CGADDSUB: e.WRAM[0x9A],
-			COLDATAR: e.WRAM[0x9C],
-			COLDATAG: e.WRAM[0x9D],
-			COLDATAB: e.WRAM[0x9E],
+			TM:       wram[0x1C],
+			TS:       wram[0x1D],
+			CGWSEL:   wram[0x99],
+			CGADDSUB: wram[0x9A],
+			COLDATAR: wram[0x9C],
+			COLDATAG: wram[0x9D],
+			COLDATAB: wram[0x9E],
 		}
 	}
 
 	bg2hoffs := read16(wram, 0xE2)
 	bg2voffs := read16(wram, 0xE8)
 
-	isOverworld := e.WRAM[0x1B] == 0
+	isOverworld := wram[0x1B] == 0
 	if isOverworld {
 		// grab area width,height extents in tiles:
 		var aw, ah uint32
@@ -2174,7 +2191,7 @@ func renderEmulatedScreen(g *image.Paletted, e *System) *image.Paletted {
 		bg2voffs -= ay
 
 		// decode map16 overworld from $7E2000 into both map8 and tile types:
-		map16 := e.WRAM[0x2000:]
+		map16 := wram[0x2000:]
 		map8 := [0x4000]uint16{}
 		for row := uint32(0); row < ah; row += 2 {
 			for col := uint32(0); col < aw; col += 2 {
@@ -2206,7 +2223,7 @@ func renderEmulatedScreen(g *image.Paletted, e *System) *image.Paletted {
 	} else {
 		// underworld:
 
-		bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&e.WRAM[0x2000])))[:]
+		bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x2000])))[:]
 		//renderBGsep(bg2p, bg2wram, tileset, drawBG1p0, drawBG1p1)
 		renderMap8Screen(bg2p, bg2hoffs, bg2voffs, 64, 64, 64, bg2wram, vramTileset[:], drawBG2p0, drawBG2p1)
 
@@ -2220,7 +2237,7 @@ func renderEmulatedScreen(g *image.Paletted, e *System) *image.Paletted {
 		bg1hoffs := read16(wram, 0xE0)
 		bg1voffs := read16(wram, 0xE6)
 
-		bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&e.WRAM[0x4000])))[:]
+		bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x4000])))[:]
 		//renderBGsep(bg1p, bg1wram, tileset, drawBG2p0, drawBG2p1)
 		renderMap8Screen(bg1p, bg1hoffs, bg1voffs, 64, 64, 64, bg1wram, vramTileset[:], drawBG1p0, drawBG1p1)
 		// }
@@ -2238,23 +2255,23 @@ func renderEmulatedScreen(g *image.Paletted, e *System) *image.Paletted {
 		e.VRAM,
 		e.HWIO.PPU.ObjTilemapAddress,
 		e.HWIO.PPU.ObjNameSelect,
-		(*[0x200]byte)(unsafe.Pointer(&e.WRAM[0x0800])),
-		(*[0x80]byte)(unsafe.Pointer(&e.WRAM[0x0A20])),
+		(*[0x200]byte)(unsafe.Pointer(&wram[0x0800])),
+		(*[0x80]byte)(unsafe.Pointer(&wram[0x0A20])),
 		0,
 		0,
 	)
 
-	fmt.Printf(
-		"%s: PPU; TM=$%08b, TS=%08b, CGWSEL=%08b, CGADDSUB=%08b, R=%02X, G=%02X, B=%02X\n",
-		AreaID(e.WRAM[0x8A]),
-		ppu.TM,
-		ppu.TS,
-		ppu.CGWSEL,
-		ppu.CGADDSUB,
-		ppu.COLDATAR,
-		ppu.COLDATAG,
-		ppu.COLDATAB,
-	)
+	//fmt.Printf(
+	//	"%s: PPU; TM=$%08b, TS=%08b, CGWSEL=%08b, CGADDSUB=%08b, R=%02X, G=%02X, B=%02X\n",
+	//	AreaID(e.WRAM[0x8A]),
+	//	ppu.TM,
+	//	ppu.TS,
+	//	ppu.CGWSEL,
+	//	ppu.CGADDSUB,
+	//	ppu.COLDATAR,
+	//	ppu.COLDATAG,
+	//	ppu.COLDATAB,
+	//)
 	ComposePrioritizedToPalettedWH(g, pal, bg1p, bg2p, obj, ppu, 256, 224)
 
 	return g

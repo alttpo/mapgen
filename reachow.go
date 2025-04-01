@@ -179,8 +179,6 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 
 				tlX, tlY := t.FromAreaID.AbsXY(0)
 
-				var d deltaGifEmitter
-
 				passed := false
 				for j := 0; j < len(t.OWEdges); j++ {
 					// place Link at the transition point:
@@ -188,7 +186,7 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 					// back up:
 					c, _, _ := edge.originC.Traverse(edge.d.Opposite(), 1)
 					lkX, lkY := t.FromAreaID.AbsXY(c)
-					lkX, lkY = lkX, lkY+7
+					lkX, lkY = lkX, lkY+16
 					write16(wram, 0x22, uint16(lkX))
 					write16(wram, 0x20, uint16(lkY))
 					// set bg scroll offset:
@@ -227,6 +225,8 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 						read16(wram, 0x20),
 					)
 
+					var d deltaGifEmitter
+
 					// run frames until transition starts:
 					for i := 0; i < 32; i++ {
 						// wait until module 09 or 0B (overworld):
@@ -253,8 +253,6 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 
 						d.EmitEmulatedFrame(e)
 					}
-
-					d.RenderGIF(fmt.Sprintf("trow%02X.%04X.gif", uint8(t.AreaID), uint16(c)))
 
 					// verify transition started:
 					if m := read8(wram, 0x10); m != 0x09 && m != 0x0B {
@@ -288,7 +286,11 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 						if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
 							panic(err)
 						}
+
+						d.EmitEmulatedFrame(e)
 					}
+
+					d.RenderGIF(fmt.Sprintf("trow%02X.%s.%04X.gif", uint8(t.AreaID), edge.d, uint16(c)))
 
 					// wait until transition ends:
 					if m := read8(wram, 0x10); m != 0x09 && m != 0x0B {
@@ -512,7 +514,7 @@ func ReachTaskOverworldTransportWorker(q Q, t T) {
 		}
 	}
 
-	os.WriteFile(fmt.Sprintf("flu%d.wram", t.Transport), wram, 0600)
+	//os.WriteFile(fmt.Sprintf("flu%d.wram", t.Transport), wram, 0600)
 
 	var d deltaGifEmitter
 

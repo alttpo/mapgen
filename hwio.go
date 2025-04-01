@@ -182,12 +182,12 @@ func (h *HWIO) Read(address uint32) (value byte) {
 
 	if offs == 0x4218 {
 		value = byte(h.ControllerInput[0] & 0xFF)
-		fmt.Printf("sample controller[0]: %08b\n", value)
+		//fmt.Printf("sample controller[0]: %08b\n", value)
 		return
 	}
 	if offs == 0x4219 {
 		value = byte(h.ControllerInput[0] >> 8)
-		fmt.Printf("sample controller[1]: %08b\n", value)
+		//fmt.Printf("sample controller[1]: %08b\n", value)
 		return
 	}
 	// OPVCT
