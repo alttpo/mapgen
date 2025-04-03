@@ -532,10 +532,13 @@ func main() {
 
 			// run frames until we get to underworld:
 			// e.LoggerCPU = os.Stdout
+			var d deltaGifEmitter
 			for i := 0; i < 240; i++ {
 				if err = e.ExecAt(runFramePC, donePC); err != nil {
 					panic(err)
 				}
+
+				d.EmitEmulatedFrame(&e)
 
 				m, sm := read8(wram, 0x10), read8(wram, 0x11)
 				if m == 0x07 && sm == 0x00 {
@@ -547,23 +550,65 @@ func main() {
 					write8(wram, 0x1CE8, 0)
 				}
 			}
+
+			// wait until link wakes up:
+			for i := 0; i < 512; i++ {
+				if err = e.ExecAt(runFramePC, donePC); err != nil {
+					panic(err)
+				}
+
+				d.EmitEmulatedFrame(&e)
+
+				if read8(wram, 0x5D) == 0 {
+					break
+				}
+			}
+			d.RenderGIF(fmt.Sprintf("wakeup.gif"))
 			// e.LoggerCPU = nil
 
 			if m, sm := read8(wram, 0x10), read8(wram, 0x11); m != 0x07 || sm != 0x00 {
 				panic(fmt.Sprintf("did not reach module 07,00; got %02X,%02X", m, sm))
 			}
 
-			q.SubmitTask(
-				&ReachTask{
-					Mode:            ModeUnderworld,
-					Rooms:           roomsMap,
-					RoomsLock:       &roomsLock,
-					Areas:           areasMap,
-					AreasLock:       &areasLock,
-					InitialEmulator: &e,
-				},
-				ReachTaskRoomFromCurrentStateWorker,
-			)
+			if false {
+				// walk south to exit Link's house:
+				d.Reset()
+				f := 0
+				e.HWIO.ControllerInput[0] = DirSouth.ToControllerInput()
+				//e.Logger = os.Stderr
+				for i := 0; i < 512; i++ {
+					fmt.Printf("FRAME %02d\n", f)
+					if err = e.ExecAt(runFramePC, donePC); err != nil {
+						panic(err)
+					}
+
+					d.EmitEmulatedFrame(&e)
+					f++
+
+					if read8(wram, 0x10) == 0x09 {
+						if read8(wram, 0x11) == 0x00 {
+							break
+						}
+					}
+				}
+				//e.Logger = nil
+				d.RenderGIF(fmt.Sprintf("walkout.gif"))
+				return
+			}
+
+			{
+				q.SubmitTask(
+					&ReachTask{
+						Mode:            ModeUnderworld,
+						Rooms:           roomsMap,
+						RoomsLock:       &roomsLock,
+						Areas:           areasMap,
+						AreasLock:       &areasLock,
+						InitialEmulator: &e,
+					},
+					ReachTaskRoomFromCurrentStateWorker,
+				)
+			}
 		}
 
 		fmt.Println("wait")

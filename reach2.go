@@ -161,6 +161,17 @@ func ReachTaskFromEntranceWorker(q Q, t T) {
 	}
 	// e.LoggerCPU = nil
 
+	{
+		var d deltaGifEmitter
+		for i := 0; i < 60; i++ {
+			d.EmitEmulatedFrame(e)
+			if err = e.ExecAt(runFramePC, donePC); err != nil {
+				panic(err)
+			}
+		}
+		d.RenderGIF(fmt.Sprintf("ent%03X.gif", t.EntranceID))
+	}
+
 	wram := (e.WRAM)[:]
 
 	t.EntranceWRAM = new(WRAMArray)
@@ -362,7 +373,7 @@ func createRoom(t T, e *System) (room *RoomState) {
 		MapCoord(read8(wram, uint32(0x0640))&2) << 11,
 	}
 
-	os.WriteFile(fmt.Sprintf("uw%03X.pre.tmap", uint16(t.Supertile)), tiles, 0644)
+	//os.WriteFile(fmt.Sprintf("uw%03X.pre.tmap", uint16(t.Supertile)), tiles, 0644)
 
 	for i := range room.Reachable {
 		room.Reachable[i] = 0x01
@@ -469,8 +480,24 @@ func createRoom(t T, e *System) (room *RoomState) {
 	// persist the current TilesVisited map in its hash(tiles) slot:
 	room.SwapTilesVisitedMap()
 
-	os.WriteFile(fmt.Sprintf("uw%03X.post.tmap", uint16(t.Supertile)), tiles, 0644)
-	os.WriteFile(fmt.Sprintf("uw%03X.dir.tmap", uint16(t.Supertile)), room.AllowDirFlags[:], 0644)
+	//os.WriteFile(fmt.Sprintf("uw%03X.post.tmap", uint16(t.Supertile)), tiles, 0644)
+	//os.WriteFile(fmt.Sprintf("uw%03X.dir.tmap", uint16(t.Supertile)), room.AllowDirFlags[:], 0644)
+	_ = tiles
+
+	{
+		g := renderEmulatedScreen(nil, e)
+		exportPNG(fmt.Sprintf("scuw%03X.png", uint16(t.Supertile)), g)
+		os.WriteFile(
+			fmt.Sprintf("scuw%03X.wram", uint16(t.Supertile)),
+			e.WRAM[:],
+			0666,
+		)
+		os.WriteFile(
+			fmt.Sprintf("scuw%03X.vram", uint16(t.Supertile)),
+			e.VRAM[:],
+			0666,
+		)
+	}
 
 	return
 }
@@ -1000,7 +1027,9 @@ func reachTaskFloodfill(q Q, t T, room *RoomState) {
 					if !room.OverworldExit.Used && room.OverworldExit.Door.ContainsCoord(c) {
 						fmt.Printf("%s: hit overworld exit\n", t.Supertile)
 						room.OverworldExit.Used = true
+						wramCopy := &WRAMArray{}
 						vramCopy := &VRAMArray{}
+						copy(wramCopy[:], room.e.WRAM[:])
 						copy(vramCopy[:], room.e.VRAM[:])
 						q.SubmitTask(&ReachTask{
 							Mode:      ModeOverworld,
@@ -1009,13 +1038,14 @@ func reachTaskFloodfill(q Q, t T, room *RoomState) {
 							Areas:     t.Areas,
 							AreasLock: t.AreasLock,
 
-							InitialEmulator: t.InitialEmulator,
-							EntranceWRAM:    &room.WRAMAfterLoaded,
+							InitialEmulator: room.e,
+							EntranceWRAM:    wramCopy,
 							EntranceVRAM:    vramCopy,
 
-							AreaID: room.OverworldExit.AreaID,
-							X:      room.OverworldExit.X,
-							Y:      room.OverworldExit.Y,
+							Supertile: t.Supertile,
+							AreaID:    room.OverworldExit.AreaID,
+							X:         room.OverworldExit.X,
+							Y:         room.OverworldExit.Y,
 						}, ReachTaskOverworldFromUnderworldWorker)
 					}
 				}

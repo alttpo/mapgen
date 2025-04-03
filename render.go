@@ -358,6 +358,14 @@ type deltaGifEmitter struct {
 	framesClean int
 }
 
+func (d *deltaGifEmitter) Reset() {
+	d.GIF = gif.GIF{}
+	d.lastFrame = nil
+	d.frames = 0
+	d.framesClean = 0
+	d.framesDirty = 0
+}
+
 func (d *deltaGifEmitter) RenderGIF(name string) {
 	fmt.Printf("gif: %s: %d frames (%d dirty, %d clean)\n", name, d.frames, d.framesDirty, d.framesClean)
 	RenderGIF(&d.GIF, name)
@@ -1867,10 +1875,10 @@ func ComposePrioritizedToPalettedWH(
 }
 
 func RenderGIF(g *gif.GIF, fname string) {
-	// present last frame for 3 seconds:
+	// present last frame for longer:
 	f := len(g.Delay) - 1
 	if f >= 0 {
-		g.Delay[f] = 300
+		g.Delay[f] = 50
 	}
 
 	// render GIF:
@@ -2015,19 +2023,25 @@ func renderVRAMBG(g [2]*image.Paletted, bg []uint16, tiles []uint8, p0 bool, p1 
 	}
 }
 
-func renderVRAMBG32(g [2]*image.Paletted, hoffs, voffs uint16, bg []uint16, tiles []uint8, p0 bool, p1 bool) {
-	ox := int(hoffs & 7)
-	oy := int(voffs & 7)
+func renderVRAMBG32(g [2]*image.Paletted, hoffs, voffs uint16, screenSize uint8, bg []uint16, tiles []uint8, p0 bool, p1 bool) {
+	screenX := uint32(screenSize&1) << 10
+	screenY := uint32(screenSize&2) << (9 + uint32(screenSize&1))
+
+	ox := -int(hoffs & 7)
+	oy := -int(voffs & 7)
+
 	va := int(voffs >> 3)
 	for y := 0; y < 33; y = y + 1 {
 		ha := int(hoffs >> 3)
 		for x := 0; x < 33; x = x + 1 {
-			tx := (x + ha) & 63
-			ty := (y + va) & 63
-			a := uint32(ty&31)*32 + uint32(tx&31)
-			a += (uint32(tx) & 0x20) << 5
-			a += (uint32(ty) & 0x20) << 6
-			z := bg[a]
+			tx := uint32(x + ha)
+			ty := uint32(y + va)
+
+			a := (ty&0x1F)<<5 | (tx & 0x1F)
+			a += screenX * ((tx & 0x20) >> 5)
+			a += screenY * ((ty & 0x20) >> 5)
+
+			z := bg[a&0x1FFF]
 
 			// priority check:
 			p := (z & 0x2000) >> 13
@@ -2128,6 +2142,31 @@ func draw4bppBGTileOffset(g *image.Paletted, z uint16, tiles []uint8, tx int, ty
 	}
 }
 
+func extractPPURegs(e *System) (ppu PPURegs) {
+	if false {
+		// from PPU $21xx writes: (doesn't work without NMI handler executing)
+		ppu = PPURegs{
+			TM:       e.HWIO.PPU.Regs[0x2C],
+			TS:       e.HWIO.PPU.Regs[0x2D],
+			CGWSEL:   e.HWIO.PPU.Regs[0x30],
+			CGADDSUB: e.HWIO.PPU.Regs[0x31],
+		}
+	} else {
+		// from WRAM:
+		wram := (*e.WRAM)[:]
+		ppu = PPURegs{
+			TM:       wram[0x1C],
+			TS:       wram[0x1D],
+			CGWSEL:   wram[0x99],
+			CGADDSUB: wram[0x9A],
+			COLDATAR: wram[0x9C],
+			COLDATAG: wram[0x9D],
+			COLDATAB: wram[0x9E],
+		}
+	}
+	return
+}
+
 func renderEmulatedScreen(g *image.Paletted, e *System) *image.Paletted {
 	var pal color.Palette
 	var bg1p, bg2p [2]*image.Paletted
@@ -2152,56 +2191,30 @@ func renderEmulatedScreen(g *image.Paletted, e *System) *image.Paletted {
 	}
 
 	// capture PPU regs to be written:
-	var ppu PPURegs
-	if false {
-		// from PPU $21xx writes: (doesn't work without NMI handler executing)
-		ppu = PPURegs{
-			TM:       e.HWIO.PPU.Regs[0x2C],
-			TS:       e.HWIO.PPU.Regs[0x2D],
-			CGWSEL:   e.HWIO.PPU.Regs[0x30],
-			CGADDSUB: e.HWIO.PPU.Regs[0x31],
-		}
-	} else {
-		// from WRAM:
-		ppu = PPURegs{
-			TM:       wram[0x1C],
-			TS:       wram[0x1D],
-			CGWSEL:   wram[0x99],
-			CGADDSUB: wram[0x9A],
-			COLDATAR: wram[0x9C],
-			COLDATAG: wram[0x9D],
-			COLDATAB: wram[0x9E],
-		}
-	}
+	var ppu PPURegs = extractPPURegs(e)
 
 	bg2hoffs := read16(wram, 0xE2)
 	bg2voffs := read16(wram, 0xE8)
 
 	isOverworld := wram[0x1B] == 0
 	if isOverworld {
-		// grab area width,height extents in tiles:
-		var aw, ah uint32
-		if read16(wram, 0x0712) == 0 {
-			aw = 64
-			ah = 64
-		} else {
-			aw = 128
-			ah = 128
-		}
-
-		// remove the area offset from BG2 scroll:
-		ax := read16(wram, 0x070C) << 3
-		ay := read16(wram, 0x0708)
-
 		bg1p = [2]*image.Paletted{
 			image.NewPaletted(image.Rectangle{}, nil),
 			image.NewPaletted(image.Rectangle{}, nil),
 		}
 
 		if false {
+			// grab area width,height extents in tiles:
+			var aw, ah uint32
+			if read16(wram, 0x0712) == 0 {
+				aw = 64
+				ah = 64
+			} else {
+				aw = 128
+				ah = 128
+			}
+
 			// decode map16 overworld from $7E2000 into both map8 and tile types:
-			bg2hoffs -= ax
-			bg2voffs -= ay
 			map16 := wram[0x2000:]
 			map8 := [0x4000]uint16{}
 			for row := uint32(0); row < ah; row += 2 {
@@ -2225,33 +2238,55 @@ func renderEmulatedScreen(g *image.Paletted, e *System) *image.Paletted {
 				}
 			}
 
+			// remove the area offset from BG2 scroll:
+			ax := read16(wram, 0x070C) << 3
+			ay := read16(wram, 0x0708)
+			bg2hoffs -= ax
+			bg2voffs -= ay
+
 			renderMap8Screen(bg2p, bg2hoffs, bg2voffs, aw, ah, 128, map8[:], vramTileset[:], drawBG2p0, drawBG2p1)
 		} else {
 			// render direct from VRAM:
-			renderVRAMBG32(bg2p, bg2hoffs, bg2voffs, (*(*[0x2000]uint16)(unsafe.Pointer(&e.VRAM[0x0000])))[:], vramTileset[:], drawBG2p0, drawBG2p1)
+			screenSize := uint8(0x03) // from BG2SC
+			renderVRAMBG32(bg2p, bg2hoffs, bg2voffs, screenSize, (*(*[0x2000]uint16)(unsafe.Pointer(&e.VRAM[0x0000])))[:], vramTileset[:], drawBG2p0, drawBG2p1)
 			//renderMap8Screen(bg2p, bg2hoffs, bg2voffs, 64, 64, 32, (*(*[0x2000]uint16)(unsafe.Pointer(&e.VRAM[0x0000])))[:], vramTileset[:], drawBG2p0, drawBG2p1)
 		}
 	} else {
 		// underworld:
 
-		bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x2000])))[:]
-		//renderBGsep(bg2p, bg2wram, tileset, drawBG1p0, drawBG1p1)
-		renderMap8Screen(bg2p, bg2hoffs, bg2voffs, 64, 64, 64, bg2wram, vramTileset[:], drawBG2p0, drawBG2p1)
+		if true {
+			// render from VRAM:
+			screenSize := uint8(0x03) // from BG2SC
+			bg1hoffs := read16(wram, 0xE0)
+			bg1voffs := read16(wram, 0xE6)
 
-		// if !isDark {
+			bg1p = [2]*image.Paletted{
+				image.NewPaletted(image.Rect(0, 0, 256, 224), pal),
+				image.NewPaletted(image.Rect(0, 0, 256, 224), pal),
+			}
 
-		bg1p = [2]*image.Paletted{
-			image.NewPaletted(image.Rect(0, 0, 256, 224), pal),
-			image.NewPaletted(image.Rect(0, 0, 256, 224), pal),
+			renderVRAMBG32(bg2p, bg2hoffs, bg2voffs, screenSize, (*(*[0x2000]uint16)(unsafe.Pointer(&e.VRAM[0x0000])))[:], vramTileset[:], drawBG2p0, drawBG2p1)
+			renderVRAMBG32(bg1p, bg1hoffs, bg1voffs, screenSize, (*(*[0x2000]uint16)(unsafe.Pointer(&e.VRAM[0x2000])))[:], vramTileset[:], drawBG1p0, drawBG1p1)
+		} else {
+			bg2wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x2000])))[:]
+			//renderBGsep(bg2p, bg2wram, tileset, drawBG1p0, drawBG1p1)
+			renderMap8Screen(bg2p, bg2hoffs, bg2voffs, 64, 64, 64, bg2wram, vramTileset[:], drawBG2p0, drawBG2p1)
+
+			// if !isDark {
+
+			bg1p = [2]*image.Paletted{
+				image.NewPaletted(image.Rect(0, 0, 256, 224), pal),
+				image.NewPaletted(image.Rect(0, 0, 256, 224), pal),
+			}
+
+			bg1hoffs := read16(wram, 0xE0)
+			bg1voffs := read16(wram, 0xE6)
+
+			bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x4000])))[:]
+			//renderBGsep(bg1p, bg1wram, tileset, drawBG2p0, drawBG2p1)
+			renderMap8Screen(bg1p, bg1hoffs, bg1voffs, 64, 64, 64, bg1wram, vramTileset[:], drawBG1p0, drawBG1p1)
+			// }
 		}
-
-		bg1hoffs := read16(wram, 0xE0)
-		bg1voffs := read16(wram, 0xE6)
-
-		bg1wram := (*(*[0x1000]uint16)(unsafe.Pointer(&wram[0x4000])))[:]
-		//renderBGsep(bg1p, bg1wram, tileset, drawBG2p0, drawBG2p1)
-		renderMap8Screen(bg1p, bg1hoffs, bg1voffs, 64, 64, 64, bg1wram, vramTileset[:], drawBG1p0, drawBG1p1)
-		// }
 	}
 
 	g.Palette = pal

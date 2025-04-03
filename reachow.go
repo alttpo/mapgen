@@ -70,7 +70,6 @@ func ReachTaskOverworldFromUnderworldWorker(q Q, t T) {
 	a = createAreaIfNotExists(
 		t,
 		func(t T, e *System) {
-
 			copy(e.WRAM[:], t.EntranceWRAM[:])
 			copy(e.VRAM[:], t.EntranceVRAM[:])
 
@@ -80,15 +79,43 @@ func ReachTaskOverworldFromUnderworldWorker(q Q, t T) {
 			// 	e.LoggerCPU = os.Stdout
 			// }
 
+			// based on PrepForOverworldExit#_02B6E6
+
 			// load module $08 to transition from underworld to overworld:
 			// note: this should automatically detect the only custom exit in the room.
-			write8(wram, 0x10, 0x08)
+			write8(wram, 0x10C, 0x08) // nextmodule
+			write8(wram, 0x10, 0x0F)  // spotlight close
 			write8(wram, 0x11, 0x00)
+			write8(wram, 0xB0, 0x00)
+			write16(wram, 0xA2, uint16(t.Supertile)) // prevroom
+
+			var d deltaGifEmitter
+			f := 0
+
 			// run frames until back to module $09:
 			for i := 0; i < 256; i++ {
-				if err = e.ExecAt(runFramePC, donePC); err != nil {
+				d.EmitEmulatedFrame(e)
+				if false {
+					os.WriteFile(
+						fmt.Sprintf("ow%02X.exit%03X.%03d.vram", uint8(t.AreaID), uint16(t.Supertile), f),
+						e.VRAM[:],
+						0666,
+					)
+					os.WriteFile(
+						fmt.Sprintf("ow%02X.exit%03X.%03d.wram", uint8(t.AreaID), uint16(t.Supertile), f),
+						e.WRAM[:],
+						0666,
+					)
+				}
+				f++
+
+				//if read8(wram, 0x10) == 0x08 && read8(wram, 0x11) == 0x02 {
+				//	e.LoggerCPU = os.Stdout
+				//}
+				if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
 					panic(err)
 				}
+				//e.LoggerCPU = nil
 
 				// f++
 				// fmt.Printf(
@@ -107,6 +134,8 @@ func ReachTaskOverworldFromUnderworldWorker(q Q, t T) {
 					}
 				}
 			}
+
+			d.RenderGIF(fmt.Sprintf("exit.ow%02X.%03X.gif", uint8(t.AreaID), uint16(t.Supertile)))
 			// e.LoggerCPU = nil
 		},
 	)
@@ -192,6 +221,8 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 					// set bg scroll offset:
 					write16(wram, 0xE2, uint16(lkX&0xFF00))
 					write16(wram, 0xE8, uint16(lkY&0xFF00))
+					// Link state:
+					write8(wram, 0x5D, 0)
 
 					// draw a point where we're transitioning from:
 					draw.Draw(
@@ -237,21 +268,22 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 							}
 						}
 
-						fmt.Printf(
-							"%s: %02X, %02X, [$0416] = %02X, link=(%04X,%04X)\n",
-							t.AreaID,
-							read8(wram, 0x10),
-							read8(wram, 0x11),
-							read8(wram, 0x0416),
-							read16(wram, 0x22),
-							read16(wram, 0x20),
-						)
+						//fmt.Printf(
+						//	"%s: %02X, %02X, [$0416] = %02X, link=(%04X,%04X)\n",
+						//	t.AreaID,
+						//	read8(wram, 0x10),
+						//	read8(wram, 0x11),
+						//	read8(wram, 0x0416),
+						//	read16(wram, 0x22),
+						//	read16(wram, 0x20),
+						//)
 
 						if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
 							panic(err)
 						}
 
 						d.EmitEmulatedFrame(e)
+
 					}
 
 					// verify transition started:
@@ -265,6 +297,7 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 						continue
 					}
 
+					n := fmt.Sprintf("trow%02X.%s.%04X", uint8(t.AreaID), edge.d, uint16(c))
 					for i := 0; i < 256; i++ {
 						// wait until module 09 or 0B (overworld):
 						if m := read8(wram, 0x10); m == 0x09 || m == 0x0B {
@@ -289,9 +322,52 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 						}
 
 						d.EmitEmulatedFrame(e)
+						if true {
+							var obj [4]*image.Paletted
+							var pal color.Palette
+							var bg1p, bg2p [2]*image.Paletted
+							var ppu PPURegs = extractPPURegs(e)
+
+							cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
+							pal = cgramToPalette(cgram)
+
+							g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+							for j := 0; j < 4; j++ {
+								obj[j] = image.NewPaletted(image.Rectangle{}, nil)
+							}
+							bg1p = [2]*image.Paletted{
+								image.NewPaletted(image.Rectangle{}, nil),
+								image.NewPaletted(image.Rectangle{}, nil),
+							}
+							bg2p = [2]*image.Paletted{
+								image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+								image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+							}
+
+							renderVRAMBG(
+								bg2p,
+								(*(*[0x2000]uint16)(unsafe.Pointer(&e.VRAM[0x0000])))[:],
+								e.VRAM[0x4000:0x10000],
+								drawBG2p0,
+								drawBG2p1,
+							)
+							ComposePrioritizedToPalettedWH(g, pal, bg1p, bg2p, obj, ppu, 512, 512)
+							exportPNG(fmt.Sprintf("%s.%02d.bg2.png", n, i), g)
+
+							os.WriteFile(
+								fmt.Sprintf("%s.%02d.vram", n, i),
+								e.VRAM[:],
+								0666,
+							)
+							os.WriteFile(
+								fmt.Sprintf("%s.%02d.wram", n, i),
+								e.WRAM[:],
+								0666,
+							)
+						}
 					}
 
-					d.RenderGIF(fmt.Sprintf("trow%02X.%s.%04X.gif", uint8(t.AreaID), edge.d, uint16(c)))
+					d.RenderGIF(fmt.Sprintf("%s.gif", n))
 
 					// wait until transition ends:
 					if m := read8(wram, 0x10); m != 0x09 && m != 0x0B {
