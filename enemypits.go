@@ -231,7 +231,7 @@ func roomFindReachablePitsFromEnemies(room *RoomState) {
 
 	room.HasReachablePit = hasReachablePit
 
-	if true {
+	if false {
 		os.WriteFile(fmt.Sprintf("t%03X.tmap", uint16(st)), tiles, 0644)
 	}
 	room.DrawSupertile()

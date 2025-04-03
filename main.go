@@ -229,7 +229,7 @@ func main() {
 
 	oopsAll = -1
 	if oopsAllStr != "" {
-		if id, err := strconv.ParseInt(oopsAllStr, 16, 8); err == nil {
+		if id, err := strconv.ParseUint(oopsAllStr, 16, 8); err == nil {
 			oopsAll = int(id)
 		}
 	}
