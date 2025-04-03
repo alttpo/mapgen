@@ -12,6 +12,16 @@ func (c *DMARegs) srcB() byte { return c[4] }
 func (c *DMARegs) sizL() byte { return c[5] }
 func (c *DMARegs) sizH() byte { return c[6] }
 
+func (c *DMARegs) srcLSet(v byte) { c[2] = v }
+func (c *DMARegs) srcHSet(v byte) { c[3] = v }
+func (c *DMARegs) srcBSet(v byte) { c[4] = v }
+
+func (c *DMARegs) SetSrc(v uint32) {
+	c.srcLSet(byte(v & 0xFF))
+	c.srcHSet(byte(v >> 8 & 0xFF))
+	c.srcBSet(byte(v >> 16 & 0xFF))
+}
+
 type DMAChannel struct{}
 
 func (c *DMAChannel) Transfer(regs *DMARegs, ch int, h *HWIO) {
@@ -52,6 +62,7 @@ func (c *DMAChannel) Transfer(regs *DMARegs, ch int, h *HWIO) {
 				}
 				siz--
 				if siz == 0 {
+					regs.SetSrc(aSrc)
 					break copyloop
 				}
 				break
@@ -67,6 +78,7 @@ func (c *DMAChannel) Transfer(regs *DMARegs, ch int, h *HWIO) {
 				}
 				siz--
 				if siz == 0 {
+					regs.SetSrc(aSrc)
 					break copyloop
 				}
 				// p+1
@@ -80,6 +92,7 @@ func (c *DMAChannel) Transfer(regs *DMARegs, ch int, h *HWIO) {
 				}
 				siz--
 				if siz == 0 {
+					regs.SetSrc(aSrc)
 					break copyloop
 				}
 				break
