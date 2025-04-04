@@ -389,6 +389,45 @@ func main() {
 		_ = os.Chdir(romFilename)
 	}
 
+	// debugging WRAM reads and writes:
+	if true {
+		e.OnPC = make(map[uint32]func())
+		firstRead := make(map[uint32]uint32)
+		firstWrite := make(map[uint32]uint32)
+		if true {
+			e.ReadWRAM = func(offs uint32) uint8 {
+				if offs == 0x84 || offs == 0x85 {
+					fmt.Printf("$%04X read    -> $%02X @ #_%06X\n", offs, e.WRAM[offs], e.GetPC())
+				}
+
+				//if (offs >= 0x10 && offs <= 0x136) || (offs >= 0x0200 && offs < 0x2000) {
+				//	if _, ok := firstRead[offs]; !ok {
+				//		firstRead[offs] = e.GetPC()
+				//		fmt.Printf("$%04X read    -> $%02X @ #_%06X\n", offs, e.WRAM[offs], e.GetPC())
+				//	}
+				//}
+				return e.DefaultReadWRAM(offs)
+			}
+			e.WriteWRAM = func(offs uint32, value uint8) {
+				if offs == 0x84 || offs == 0x85 {
+					fmt.Printf("$%04X written <- $%02X @ #_%06X\n", offs, value, e.GetPC())
+				}
+
+				//if (offs >= 0x10 && offs <= 0x136) || (offs >= 0x0200 && offs < 0x2000) {
+				//	if _, ok := firstWrite[offs]; !ok {
+				//		firstWrite[offs] = e.GetPC()
+				//		fmt.Printf("$%04X written <- $%02X @ #_%06X\n", offs, value, e.GetPC())
+				//	}
+				//}
+				e.DefaultWriteWRAM(offs, value)
+			}
+		}
+		e.OnPC[0x0085FC] = func() {
+			clear(firstRead)
+			clear(firstWrite)
+		}
+	}
+
 	setupAlttp(&e)
 
 	//RoomsWithPitDamage#_00990C [0x70]uint16
@@ -530,15 +569,20 @@ func main() {
 			write8(wram, 0x010A, 0x01)
 			write8(wram, 0x04AA, 0x01)
 
+			f := 0
+
 			// run frames until we get to underworld:
 			// e.LoggerCPU = os.Stdout
 			var d deltaGifEmitter
+			d.doNotOptimize = true
 			for i := 0; i < 240; i++ {
+				fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
 				if err = e.ExecAt(runFramePC, donePC); err != nil {
 					panic(err)
 				}
 
 				d.EmitEmulatedFrame(&e)
+				f++
 
 				m, sm := read8(wram, 0x10), read8(wram, 0x11)
 				if m == 0x07 && sm == 0x00 {
@@ -553,6 +597,7 @@ func main() {
 
 			// wait until link wakes up:
 			for i := 0; i < 512; i++ {
+				fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
 				if err = e.ExecAt(runFramePC, donePC); err != nil {
 					panic(err)
 				}
@@ -570,14 +615,13 @@ func main() {
 				panic(fmt.Sprintf("did not reach module 07,00; got %02X,%02X", m, sm))
 			}
 
+			// for debugging OW transition from 2C to 1B:
 			if false {
 				// walk south to exit Link's house:
-				d.Reset()
-				f := 0
 				e.HWIO.ControllerInput[0] = DirSouth.ToControllerInput()
 				//e.Logger = os.Stderr
 				for i := 0; i < 512; i++ {
-					fmt.Printf("FRAME %02d\n", f)
+					fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
 					if err = e.ExecAt(runFramePC, donePC); err != nil {
 						panic(err)
 					}
@@ -592,7 +636,86 @@ func main() {
 					}
 				}
 				//e.Logger = nil
-				d.RenderGIF(fmt.Sprintf("walkout.gif"))
+
+				// now walk south a tiny bit:
+				var bg deltaGifEmitter
+				bg.doNotOptimize = true
+
+				e.HWIO.ControllerInput[0] = DirSouth.ToControllerInput()
+				for i := 0; i < 30; i++ {
+					fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
+					if err = e.ExecAt(runFramePC, donePC); err != nil {
+						panic(err)
+					}
+
+					d.EmitEmulatedFrame(&e)
+					g := renderVRAMFullBG(nil, &e)
+					bg.EmitFrame(g)
+					f++
+				}
+
+				// east:
+				e.HWIO.ControllerInput[0] = DirEast.ToControllerInput()
+				for i := 0; i < 96; i++ {
+					fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
+					if err = e.ExecAt(runFramePC, donePC); err != nil {
+						panic(err)
+					}
+
+					d.EmitEmulatedFrame(&e)
+					g := renderVRAMFullBG(nil, &e)
+					bg.EmitFrame(g)
+					f++
+				}
+
+				// north:
+				e.HWIO.ControllerInput[0] = DirNorth.ToControllerInput()
+				for i := 0; i < 292; i++ {
+					fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
+					if err = e.ExecAt(runFramePC, donePC); err != nil {
+						panic(err)
+					}
+
+					os.WriteFile(
+						fmt.Sprintf("debug.2Cto1B.%03d.wram", f),
+						e.WRAM[:],
+						0666,
+					)
+
+					d.EmitEmulatedFrame(&e)
+					g := renderVRAMFullBG(nil, &e)
+					bg.EmitFrame(g)
+					f++
+
+					if read8(wram, 0x10) != 0x09 {
+						break
+					}
+					if read8(wram, 0x11) != 0x00 {
+						break
+					}
+				}
+
+				e.HWIO.ControllerInput[0] = 0
+				for i := 0; i < 128; i++ {
+					fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
+					if err = e.ExecAt(runFramePC, donePC); err != nil {
+						panic(err)
+					}
+
+					os.WriteFile(
+						fmt.Sprintf("debug.2Cto1B.%03d.wram", f),
+						e.WRAM[:],
+						0666,
+					)
+
+					d.EmitEmulatedFrame(&e)
+					g := renderVRAMFullBG(nil, &e)
+					bg.EmitFrame(g)
+					f++
+				}
+				d.RenderGIF(fmt.Sprintf("debug.2Cto1B.gif"))
+				bg.RenderGIF(fmt.Sprintf("debug.2Cto1B.bg2.gif"))
+
 				return
 			}
 

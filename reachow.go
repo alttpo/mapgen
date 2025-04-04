@@ -210,6 +210,10 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 
 				passed := false
 				for j := 0; j < len(t.OWEdges); j++ {
+					// reset WRAM and VRAM:
+					copy(e.WRAM[:], t.EntranceWRAM[:])
+					copy(e.VRAM[:], t.EntranceVRAM[:])
+
 					// place Link at the transition point:
 					edge := t.OWEdges[j]
 					// back up:
@@ -218,11 +222,22 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 					lkX, lkY = lkX, lkY+16
 					write16(wram, 0x22, uint16(lkX))
 					write16(wram, 0x20, uint16(lkY))
-					// set bg scroll offset:
+					// set bg2 scroll offset:
 					write16(wram, 0xE2, uint16(lkX&0xFF00))
 					write16(wram, 0xE8, uint16(lkY&0xFF00))
-					// Link state:
-					write8(wram, 0x5D, 0)
+					// bg1:
+					write16(wram, 0xE0, uint16(lkX&0xFF00))
+					write16(wram, 0xE6, uint16(lkY&0xFF00))
+
+					// OWTMAPI:
+					write16(wram, 0x84, 0x416)
+
+					// LINKSTATE = 00 default
+					write8(wram, 0x5D, 0x00)
+
+					// Transition direction:
+					//write16(wram, 0x0410, edge.d.ToTransitionBitfield())
+					//write16(wram, 0x0418, uint16(edge.d))
 
 					// draw a point where we're transitioning from:
 					draw.Draw(
@@ -237,9 +252,6 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 						image.Point{},
 						draw.Over,
 					)
-
-					// LINKSTATE = 00 default
-					write8(wram, 0x5D, 0x00)
 
 					// set Link's direction:
 					// write8(wram, 0x2F, uint8(edge.d)*2)
@@ -283,7 +295,6 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 						}
 
 						d.EmitEmulatedFrame(e)
-
 					}
 
 					// verify transition started:
@@ -297,6 +308,16 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 						continue
 					}
 
+					e.OnPC = make(map[uint32]func())
+					e.OnPC[0x008D13] = func() {
+						// NMI_UpdateOWScroll
+						e.Logger = os.Stdout
+						e.LoggerCPU = os.Stdout
+					}
+					e.OnPC[0x008D61] = func() {
+						e.LoggerCPU = nil
+						e.Logger = nil
+					}
 					n := fmt.Sprintf("trow%02X.%s.%04X", uint8(t.AreaID), edge.d, uint16(c))
 					for i := 0; i < 256; i++ {
 						// wait until module 09 or 0B (overworld):
@@ -307,51 +328,26 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 							}
 						}
 
-						fmt.Printf(
-							"%s: %02X, %02X, [$0416] = %02X, link=(%04X,%04X)\n",
-							t.AreaID,
-							read8(wram, 0x10),
-							read8(wram, 0x11),
-							read8(wram, 0x0416),
-							read16(wram, 0x22),
-							read16(wram, 0x20),
-						)
+						//fmt.Printf(
+						//	"%s: %02X, %02X, [$0416] = %02X, link=(%04X,%04X)\n",
+						//	t.AreaID,
+						//	read8(wram, 0x10),
+						//	read8(wram, 0x11),
+						//	read8(wram, 0x0416),
+						//	read16(wram, 0x22),
+						//	read16(wram, 0x20),
+						//)
 
+						//fmt.Printf("FRAME %02d\n", i)
 						if err = e.ExecAt(b00RunSingleFramePC, donePC); err != nil {
 							panic(err)
 						}
 
 						d.EmitEmulatedFrame(e)
+
+						// render VRAM BG2 as 512x512:
 						if true {
-							var obj [4]*image.Paletted
-							var pal color.Palette
-							var bg1p, bg2p [2]*image.Paletted
-							var ppu PPURegs = extractPPURegs(e)
-
-							cgram := (*(*[0x100]uint16)(unsafe.Pointer(&wram[0xC300])))[:]
-							pal = cgramToPalette(cgram)
-
-							g := image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
-							for j := 0; j < 4; j++ {
-								obj[j] = image.NewPaletted(image.Rectangle{}, nil)
-							}
-							bg1p = [2]*image.Paletted{
-								image.NewPaletted(image.Rectangle{}, nil),
-								image.NewPaletted(image.Rectangle{}, nil),
-							}
-							bg2p = [2]*image.Paletted{
-								image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
-								image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
-							}
-
-							renderVRAMBG(
-								bg2p,
-								(*(*[0x2000]uint16)(unsafe.Pointer(&e.VRAM[0x0000])))[:],
-								e.VRAM[0x4000:0x10000],
-								drawBG2p0,
-								drawBG2p1,
-							)
-							ComposePrioritizedToPalettedWH(g, pal, bg1p, bg2p, obj, ppu, 512, 512)
+							g := renderVRAMFullBG(nil, e)
 							exportPNG(fmt.Sprintf("%s.%02d.bg2.png", n, i), g)
 
 							os.WriteFile(

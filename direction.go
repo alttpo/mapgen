@@ -87,3 +87,18 @@ func (d Direction) RotateCCW() Direction {
 func (d Direction) ToControllerInput() uint16 {
 	return uint16(1) << (8 + 3 - d)
 }
+
+func (d Direction) ToTransitionBitfield() uint16 {
+	switch d {
+	case DirNorth:
+		return 0b1000
+	case DirSouth:
+		return 0b0100
+	case DirWest:
+		return 0b0010
+	case DirEast:
+		return 0b0001
+	default:
+		return 0
+	}
+}
