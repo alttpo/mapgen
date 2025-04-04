@@ -352,7 +352,9 @@ func generateDeltaFrame(prev, curr *image.Paletted) (delta *image.Paletted, dirt
 type deltaGifEmitter struct {
 	GIF       gif.GIF
 	lastFrame *image.Paletted
-	//g           *image.Paletted
+
+	doNotOptimize bool
+
 	frames      int
 	framesDirty int
 	framesClean int
@@ -380,18 +382,20 @@ func (d *deltaGifEmitter) EmitFrame(g *image.Paletted) {
 	delta := g
 	disposal := byte(0)
 
-	if optimizeGIFs && d.GIF.Image != nil {
-		dirty := false
-		delta, dirty = generateDeltaFrame(d.lastFrame, g)
-		disposal = gif.DisposalNone
+	if !d.doNotOptimize {
+		if optimizeGIFs && d.GIF.Image != nil {
+			dirty := false
+			delta, dirty = generateDeltaFrame(d.lastFrame, g)
+			disposal = gif.DisposalNone
 
-		if !dirty {
-			// just increment last frame's delay if nothing changed:
-			d.GIF.Delay[len(d.GIF.Delay)-1] += 2
-			d.lastFrame = g
-			d.frames++
-			d.framesClean++
-			return
+			if !dirty {
+				// just increment last frame's delay if nothing changed:
+				d.GIF.Delay[len(d.GIF.Delay)-1] += 2
+				d.lastFrame = g
+				d.frames++
+				d.framesClean++
+				return
+			}
 		}
 	}
 
@@ -2165,6 +2169,42 @@ func extractPPURegs(e *System) (ppu PPURegs) {
 		}
 	}
 	return
+}
+
+func renderVRAMFullBG(g *image.Paletted, e *System) *image.Paletted {
+	var obj [4]*image.Paletted
+	var pal color.Palette
+	var bg1p, bg2p [2]*image.Paletted
+	var ppu PPURegs = extractPPURegs(e)
+
+	cgram := (*(*[0x100]uint16)(unsafe.Pointer(&e.WRAM[0xC300])))[:]
+	pal = cgramToPalette(cgram)
+
+	if g == nil {
+		g = image.NewPaletted(image.Rect(0, 0, 512, 512), pal)
+	}
+	for j := 0; j < 4; j++ {
+		obj[j] = image.NewPaletted(image.Rectangle{}, nil)
+	}
+	bg1p = [2]*image.Paletted{
+		image.NewPaletted(image.Rectangle{}, nil),
+		image.NewPaletted(image.Rectangle{}, nil),
+	}
+	bg2p = [2]*image.Paletted{
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+		image.NewPaletted(image.Rect(0, 0, 512, 512), pal),
+	}
+
+	renderVRAMBG(
+		bg2p,
+		(*(*[0x2000]uint16)(unsafe.Pointer(&e.VRAM[0x0000])))[:],
+		e.VRAM[0x4000:0x10000],
+		drawBG2p0,
+		drawBG2p1,
+	)
+	ComposePrioritizedToPalettedWH(g, pal, bg1p, bg2p, obj, ppu, 512, 512)
+
+	return g
 }
 
 func renderEmulatedScreen(g *image.Paletted, e *System) *image.Paletted {

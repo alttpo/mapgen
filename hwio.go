@@ -18,8 +18,8 @@ func (c *DMARegs) srcBSet(v byte) { c[4] = v }
 
 func (c *DMARegs) SetSrc(v uint32) {
 	c.srcLSet(byte(v & 0xFF))
-	c.srcHSet(byte(v >> 8 & 0xFF))
-	c.srcBSet(byte(v >> 16 & 0xFF))
+	c.srcHSet(byte((v >> 8) & 0xFF))
+	c.srcBSet(byte((v >> 16) & 0xFF))
 }
 
 type DMAChannel struct{}
