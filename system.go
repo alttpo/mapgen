@@ -39,6 +39,10 @@ type System struct {
 
 	Logger    io.Writer
 	LoggerCPU io.Writer
+
+	OnPC      map[uint32]func()
+	ReadWRAM  func(uint32) uint8
+	WriteWRAM func(uint32, uint8)
 }
 
 func (s *System) InitMemory() {
@@ -55,6 +59,9 @@ func (s *System) InitMemory() {
 	if s.OAM == nil {
 		s.OAM = &OAMArray{}
 	}
+
+	s.ReadWRAM = s.DefaultReadWRAM
+	s.WriteWRAM = s.DefaultWriteWRAM
 }
 
 func (s *System) InitEmulatorFrom(initEmu *System) (err error) {
@@ -104,17 +111,25 @@ func (s *System) InitEmulator() (err error) {
 	return s.InitBusLoROM()
 }
 
+func (s *System) DefaultReadWRAM(offs uint32) uint8 {
+	return s.WRAM[offs]
+}
+
+func (s *System) DefaultWriteWRAM(offs uint32, value uint8) {
+	s.WRAM[offs] = value
+}
+
 func (s *System) InitBusWRAM() (err error) {
 	// WRAM:
 	s.Bus.AttachReader(
 		0x7E_0000,
 		0x7F_FFFF,
-		func(addr uint32) uint8 { return s.WRAM[addr-0x7E_0000] },
+		func(addr uint32) uint8 { return s.ReadWRAM(addr - 0x7E_0000) },
 	)
 	s.Bus.AttachWriter(
 		0x7E_0000,
 		0x7F_FFFF,
-		func(addr uint32, val uint8) { s.WRAM[addr-0x7E_0000] = val },
+		func(addr uint32, val uint8) { s.WriteWRAM(addr-0x7E_0000, val) },
 	)
 
 	// map in first $2000 of each bank as a mirror of WRAM:
@@ -123,12 +138,12 @@ func (s *System) InitBusWRAM() (err error) {
 		s.Bus.AttachReader(
 			bank,
 			bank|0x1FFF,
-			func(addr uint32) uint8 { return s.WRAM[addr-bank] },
+			func(addr uint32) uint8 { return s.ReadWRAM(addr - bank) },
 		)
 		s.Bus.AttachWriter(
 			bank,
 			bank|0x1FFF,
-			func(addr uint32, val uint8) { s.WRAM[addr-bank] = val },
+			func(addr uint32, val uint8) { s.WriteWRAM(addr-bank, val) },
 		)
 	}
 	for b := uint32(0x80); b < 0xC0; b++ {
@@ -136,12 +151,12 @@ func (s *System) InitBusWRAM() (err error) {
 		s.Bus.AttachReader(
 			bank,
 			bank|0x1FFF,
-			func(addr uint32) uint8 { return s.WRAM[addr-bank] },
+			func(addr uint32) uint8 { return s.ReadWRAM(addr - bank) },
 		)
 		s.Bus.AttachWriter(
 			bank,
 			bank|0x1FFF,
-			func(addr uint32, val uint8) { s.WRAM[addr-bank] = val },
+			func(addr uint32, val uint8) { s.WriteWRAM(addr-bank, val) },
 		)
 	}
 
@@ -339,11 +354,16 @@ func (s *System) RunUntil(targetPC uint32, maxCycles uint64) (stopPC uint32, exp
 
 	expectedPC = targetPC
 	for cycles = uint64(0); cycles < maxCycles; {
+		pc := s.GetPC()
+		if cb, ok := s.OnPC[pc]; ok {
+			cb()
+		}
+
 		if s.LoggerCPU != nil {
 			s.CPU.DisassembleCurrentPC(s.LoggerCPU)
 			fmt.Fprintln(s.LoggerCPU)
 		}
-		if s.GetPC() == targetPC {
+		if pc == targetPC {
 			break
 		}
 
