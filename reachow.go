@@ -222,13 +222,17 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 					lkX, lkY = lkX, lkY+16
 					write16(wram, 0x22, uint16(lkX))
 					write16(wram, 0x20, uint16(lkY))
+					// y[20], x[22] = 0x0AD4, 0x0939
+					// y[E8], x[E2] = 0x0A76, 0x08B3
+					//                 -0x5E,  -0x86
+					// y[E6], x[E0] = 0x0A88, 0x0872
+					//                 -0x4C,  -0xC7
 					// set bg2 scroll offset:
-					write16(wram, 0xE2, uint16(lkX&0xFF00))
-					write16(wram, 0xE8, uint16(lkY&0xFF00))
+					write16(wram, 0xE2, uint16(lkX-0x86))
+					write16(wram, 0xE8, uint16(lkY-0x5E))
 					// bg1:
-					write16(wram, 0xE0, uint16(lkX&0xFF00))
-					write16(wram, 0xE6, uint16(lkY&0xFF00))
-
+					write16(wram, 0xE0, uint16(lkX-0xC7))
+					write16(wram, 0xE6, uint16(lkY-0x4C))
 					// OWTMAPI:
 					write16(wram, 0x84, 0x416)
 
@@ -308,16 +312,16 @@ func ReachTaskOverworldEdgeWorker(q Q, t T) {
 						continue
 					}
 
-					e.OnPC = make(map[uint32]func())
-					e.OnPC[0x008D13] = func() {
-						// NMI_UpdateOWScroll
-						e.Logger = os.Stdout
-						e.LoggerCPU = os.Stdout
-					}
-					e.OnPC[0x008D61] = func() {
-						e.LoggerCPU = nil
-						e.Logger = nil
-					}
+					//e.OnPC = make(map[uint32]func())
+					//e.OnPC[0x008D13] = func() {
+					//	// NMI_UpdateOWScroll
+					//	e.Logger = os.Stdout
+					//	e.LoggerCPU = os.Stdout
+					//}
+					//e.OnPC[0x008D61] = func() {
+					//	e.LoggerCPU = nil
+					//	e.Logger = nil
+					//}
 					n := fmt.Sprintf("trow%02X.%s.%04X", uint8(t.AreaID), edge.d, uint16(c))
 					for i := 0; i < 256; i++ {
 						// wait until module 09 or 0B (overworld):
