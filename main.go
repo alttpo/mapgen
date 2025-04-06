@@ -10,6 +10,7 @@ import (
 	"image/gif"
 	"os"
 	"path/filepath"
+	"roomloader/ptr"
 	"roomloader/taskqueue"
 	"runtime"
 	"runtime/debug"
@@ -584,17 +585,10 @@ func main() {
 			f := 0
 
 			// run frames until we get to underworld:
-			// e.LoggerCPU = os.Stdout
-			var d deltaGifEmitter
-			d.doNotOptimize = true
 			for i := 0; i < 240; i++ {
-				fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
 				if err = e.ExecAt(runFramePC, donePC); err != nil {
 					panic(err)
 				}
-
-				d.EmitEmulatedFrame(&e)
-				f++
 
 				m, sm := read8(wram, 0x10), read8(wram, 0x11)
 				if m == 0x07 && sm == 0x00 {
@@ -608,137 +602,105 @@ func main() {
 			}
 
 			// wait until link wakes up:
-			for i := 0; i < 512; i++ {
-				fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
+			for i := 0; i < 8; i++ {
 				if err = e.ExecAt(runFramePC, donePC); err != nil {
 					panic(err)
 				}
-
-				d.EmitEmulatedFrame(&e)
 
 				if read8(wram, 0x5D) == 0 {
 					break
 				}
 			}
-			d.RenderGIF(fmt.Sprintf("wakeup.gif"))
-			// e.LoggerCPU = nil
 
 			if m, sm := read8(wram, 0x10), read8(wram, 0x11); m != 0x07 || sm != 0x00 {
 				panic(fmt.Sprintf("did not reach module 07,00; got %02X,%02X", m, sm))
 			}
 
 			// for debugging OW transition from 2C to 1B:
-			if false {
-				d.Reset()
-				d.doNotOptimize = true
+			if true {
+				var d deltaGifEmitter
 				var bg deltaGifEmitter
+				d.doNotOptimize = true
 				bg.doNotOptimize = true
 
 				f = 0
 
-				// walk south to exit Link's house:
-				e.HWIO.ControllerInput[0] = DirSouth.ToControllerInput()
-				//e.Logger = os.Stderr
-				for i := 0; i < 512; i++ {
-					fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
-					if err = e.ExecAt(runFramePC, donePC); err != nil {
-						panic(err)
-					}
+				steps := []struct {
+					I       uint16
+					F       int
+					MandSeq *[2]uint8
+					Sne     *uint8
+				}{
+					//// walk south until we exit Link's house:
+					//{I: DirSouth.ToControllerInput(), F: 512, MandSeq: ptr.Of([2]uint8{9, 0})},
+					//// now walk south a tiny bit:
+					//{I: DirSouth.ToControllerInput(), F: 30},
+					//// east past the bushes and hop off the ledge:
+					//{I: DirEast.ToControllerInput(), F: 96},
+					//// north until we cross the border:
+					//{I: DirNorth.ToControllerInput(), F: 292, Sne: ptr.Of(uint8(0))},
+					//// no input:
+					//{I: 0, F: 128},
 
-					d.EmitEmulatedFrame(&e)
-					g := renderVRAMFullBG(nil, &e)
-					bg.EmitFrame(g)
-					f++
+					// walk south until we exit Link's house:
+					{I: DirSouth.ToControllerInput(), F: 512, MandSeq: ptr.Of([2]uint8{9, 0})},
+					// now walk south a tiny bit:
+					{I: DirSouth.ToControllerInput(), F: 120},
+					// east past the bushes and hop off the ledge:
+					{I: DirEast.ToControllerInput(), F: 16},
+					// south until we cross the border:
+					{I: DirSouth.ToControllerInput(), F: 120, Sne: ptr.Of(uint8(0))},
+					// no input:
+					{I: 0, F: 128},
+				}
 
-					if read8(wram, 0x10) == 0x09 {
-						if read8(wram, 0x11) == 0x00 {
-							break
+				for i := 0; i < len(steps); i++ {
+					step := &steps[i]
+
+					e.HWIO.ControllerInput[0] = step.I
+					fmt.Printf("Step %d; I = %016b\n", i, step.I)
+					for n := 0; n < step.F; n++ {
+						fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
+						if err = e.ExecAt(runFramePC, donePC); err != nil {
+							panic(err)
+						}
+
+						d.EmitEmulatedFrame(&e)
+						g := renderVRAMFullBG(nil, &e)
+						bg.EmitFrame(g)
+
+						//os.WriteFile(
+						//	fmt.Sprintf("debug.2Cto1B.%03d.wram", f),
+						//	e.WRAM[:],
+						//	0666,
+						//)
+
+						f++
+
+						// exit conditions:
+						if step.MandSeq != nil {
+							if read8(wram, 0x10) == (*step.MandSeq)[0] {
+								if read8(wram, 0x11) == (*step.MandSeq)[1] {
+									break
+								}
+							}
+						}
+						if step.Sne != nil {
+							if read8(wram, 0x11) != *step.Sne {
+								break
+							}
 						}
 					}
 				}
-				//e.Logger = nil
 
-				// now walk south a tiny bit:
-				e.HWIO.ControllerInput[0] = DirSouth.ToControllerInput()
-				for i := 0; i < 30; i++ {
-					fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
-					if err = e.ExecAt(runFramePC, donePC); err != nil {
-						panic(err)
-					}
-
-					d.EmitEmulatedFrame(&e)
-					g := renderVRAMFullBG(nil, &e)
-					bg.EmitFrame(g)
-					f++
-				}
-
-				// east:
-				e.HWIO.ControllerInput[0] = DirEast.ToControllerInput()
-				for i := 0; i < 96; i++ {
-					fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
-					if err = e.ExecAt(runFramePC, donePC); err != nil {
-						panic(err)
-					}
-
-					d.EmitEmulatedFrame(&e)
-					g := renderVRAMFullBG(nil, &e)
-					bg.EmitFrame(g)
-					f++
-				}
-
-				// north:
-				e.HWIO.ControllerInput[0] = DirNorth.ToControllerInput()
-				for i := 0; i < 292; i++ {
-					fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
-					if err = e.ExecAt(runFramePC, donePC); err != nil {
-						panic(err)
-					}
-
-					os.WriteFile(
-						fmt.Sprintf("debug.2Cto1B.%03d.wram", f),
-						e.WRAM[:],
-						0666,
-					)
-
-					d.EmitEmulatedFrame(&e)
-					g := renderVRAMFullBG(nil, &e)
-					bg.EmitFrame(g)
-					f++
-
-					if read8(wram, 0x10) != 0x09 {
-						break
-					}
-					if read8(wram, 0x11) != 0x00 {
-						break
-					}
-				}
-
-				e.HWIO.ControllerInput[0] = 0
-				for i := 0; i < 128; i++ {
-					fmt.Printf("FRAME %03d\n----------------------------------------------------------------\n", f)
-					if err = e.ExecAt(runFramePC, donePC); err != nil {
-						panic(err)
-					}
-
-					os.WriteFile(
-						fmt.Sprintf("debug.2Cto1B.%03d.wram", f),
-						e.WRAM[:],
-						0666,
-					)
-
-					d.EmitEmulatedFrame(&e)
-					g := renderVRAMFullBG(nil, &e)
-					bg.EmitFrame(g)
-					f++
-				}
 				d.RenderGIF(fmt.Sprintf("debug.2Cto1B.gif"))
 				bg.RenderGIF(fmt.Sprintf("debug.2Cto1B.bg2.gif"))
 
 				return
 			} else {
-				d.Reset()
-				d.doNotOptimize = true
+				var d deltaGifEmitter
 				var bg deltaGifEmitter
+				d.doNotOptimize = true
 				bg.doNotOptimize = true
 
 				// walk south to exit Link's house:
@@ -769,8 +731,7 @@ func main() {
 
 				e.Bus.Write16(0xE2, 0x08BA)
 				e.Bus.Write16(0xE8, 0x0A00)
-				e.Bus.Write16(0xE0, 0x0876)
-				e.Bus.Write16(0xE6, 0x0A4D)
+
 				e.Bus.Write16(0x22, 0x0940)
 				e.Bus.Write16(0x20, 0x0A03)
 
