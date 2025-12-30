@@ -391,7 +391,7 @@ func main() {
 	}
 
 	// debugging WRAM reads and writes:
-	if true {
+	if false {
 		//e.OnPC = make(map[uint32]func())
 		//firstRead := make(map[uint32]uint32)
 		//firstWrite := make(map[uint32]uint32)
@@ -518,7 +518,7 @@ func main() {
 	}
 
 	// run jobs starting from entrances:
-	if true {
+	if false {
 		roomsMap := make(map[Supertile]*RoomState, 0x128)
 		roomsLock := sync.Mutex{}
 		areasMap := make(map[AreaID]*Area, 0x80)
@@ -961,7 +961,7 @@ func main() {
 	}
 
 	// run generic processing jobs on all supertiles:
-	if false {
+	if true {
 		n := runtime.NumCPU()
 		//n := 1
 
@@ -998,7 +998,8 @@ func main() {
 		//st16min, st16max := uint16(0x12), uint16(0x12)
 
 		// generate supertile animations:
-		roomFn := roomFindReachablePitsFromEnemies
+		roomFn := roomFindExploitData
+		//roomFn := roomFindReachablePitsFromEnemies
 		// roomFn := renderEnemyMovementGif
 		// roomFn := renderSupertile
 
@@ -1017,6 +1018,7 @@ func main() {
 			room := &RoomState{
 				Supertile: st,
 				Entrance:  &Entrance{EntranceID: eID},
+				e:         &System{},
 			}
 			rooms = append(rooms, room)
 
@@ -1028,20 +1030,22 @@ func main() {
 					}
 				}()
 
-				fmt.Printf("process room %s\n", room.Supertile)
+				//fmt.Printf("process room %s\n", room.Supertile)
 				processRoom(room, &e, roomFn)
 			})
 		}
 
 		wg.Wait()
 
-		dbg := strings.Builder{}
-		for _, room := range rooms {
-			if room.HasReachablePit {
-				fmt.Fprintf(&dbg, ",%s", room.Supertile)
+		if false {
+			dbg := strings.Builder{}
+			for _, room := range rooms {
+				if room.HasReachablePit {
+					fmt.Fprintf(&dbg, ",%s", room.Supertile)
+				}
 			}
+			fmt.Printf("rooms with enemy-reachable pits: %s\n", dbg.String()[1:])
 		}
-		fmt.Printf("rooms with enemy-reachable pits: %s\n", dbg.String()[1:])
 
 		// condense all maps into big atlas images:
 		if drawEG1 {
