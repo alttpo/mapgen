@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+)
 
 type DMARegs [16]byte
 
@@ -320,12 +323,12 @@ func (h *HWIO) Write(address uint32, value byte) {
 	}
 	if offs == 0x2102 {
 		// OAMADDL
-		h.PPU.oamadd = uint16(value) | h.PPU.oamadd&0xFF00
+		h.PPU.oamadd = (h.PPU.oamadd & 0x0200) | (uint16(value) << 1)
 		return
 	}
 	if offs == 0x2103 {
 		// OAMADDH
-		h.PPU.oamadd = uint16(value)<<8 | h.PPU.oamadd&0x00FF
+		h.PPU.oamadd = (h.PPU.oamadd & 0x01FE) | uint16(value&1)<<9
 		return
 	}
 	if offs == 0x2104 {
@@ -369,7 +372,7 @@ func (h *HWIO) Write(address uint32, value byte) {
 		}
 		h.PPU.addrRemapping = (value & 0x0C) >> 2
 		if h.PPU.addrRemapping != 0 {
-			fmt.Printf("unsupported VRAM address remapping mode %d\n", h.PPU.addrRemapping)
+			fmt.Fprintf(os.Stderr, "unsupported VRAM address remapping mode %d\n", h.PPU.addrRemapping)
 		}
 		//if h.s.Logger != nil {
 		//	fmt.Fprintf(h.s.Logger, "PC=$%06x\n", h.s.GetPC())
