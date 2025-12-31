@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 )
 
 type DMARegs [16]byte
@@ -206,6 +205,18 @@ func (h *HWIO) Read(address uint32) (value byte) {
 		//fmt.Printf("sample controller[1]: %08b\n", value)
 		return
 	}
+	if offs == 0x2138 {
+		if h.PPU.oamadd < 0x220 {
+			value = h.s.OAM[h.PPU.oamadd]
+		}
+
+		// TODO: how to wrap this?
+		h.PPU.oamadd++
+		if h.PPU.oamadd >= 0x220 {
+			h.PPU.oamadd = 0
+		}
+		return
+	}
 	// OPVCT
 	if offs == 0x213D {
 		value = 0xF0
@@ -333,11 +344,13 @@ func (h *HWIO) Write(address uint32, value byte) {
 	}
 	if offs == 0x2104 {
 		// OAMDATA
-		h.s.OAM[h.PPU.oamadd] = value
+		if h.PPU.oamadd < 0x220 {
+			h.s.OAM[h.PPU.oamadd] = value
+		}
 
 		// TODO: how to wrap this?
-		h.PPU.oamadd = h.PPU.oamadd + 1
-		if h.PPU.oamadd >= 544 {
+		h.PPU.oamadd++
+		if h.PPU.oamadd >= 0x220 {
 			h.PPU.oamadd = 0
 		}
 		return
@@ -372,7 +385,7 @@ func (h *HWIO) Write(address uint32, value byte) {
 		}
 		h.PPU.addrRemapping = (value & 0x0C) >> 2
 		if h.PPU.addrRemapping != 0 {
-			fmt.Fprintf(os.Stderr, "unsupported VRAM address remapping mode %d\n", h.PPU.addrRemapping)
+			//fmt.Fprintf(os.Stderr, "unsupported VRAM address remapping mode %d\n", h.PPU.addrRemapping)
 		}
 		//if h.s.Logger != nil {
 		//	fmt.Fprintf(h.s.Logger, "PC=$%06x\n", h.s.GetPC())
